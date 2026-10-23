@@ -180,6 +180,12 @@ export function fleetPickId(ship: { id: string; houseId: string; status: string 
   return ship.id;
 }
 
+/** Команды флота остаются на корабле игрока, даже если на карте выбран чужой борт. */
+export function fleetCommandShipId(selected: { id: string; houseId: string; status: string } | undefined, playerId: string, current: string): string {
+  if (selected && selected.houseId === playerId && selected.status !== "building") return selected.id;
+  return current;
+}
+
 export function colonyShip(ships: Ship[], houseId: string, preferredId: string): Ship | undefined {
   const preferred = ships.find((ship) => ship.id === preferredId && ship.houseId === houseId && ship.status !== "building");
   return preferred ?? ships.find((ship) => ship.houseId === houseId && ship.status !== "building");

@@ -8,7 +8,7 @@ import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
-import { bottlenecks, colonyShip, dependencyRows, explainShip, fleetPickId, foodPerDay, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
+import { bottlenecks, colonyShip, dependencyRows, explainShip, fleetCommandShipId, fleetPickId, foodPerDay, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -1523,5 +1523,76 @@ describe("замечания ревью", () => {
     for (let day = 0; day < 24 && colony.stock.food === 0; day += 1) runTicks(state, 1);
     expect(colony.stock.food).toBeGreaterThan(0);
     expect(audit(state).ok).toBe(true);
+  });
+
+  it("промежуточная остановка колонии сохраняет дальнейший маршрут", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread" && item.classId === "freighter")!;
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: ship.id, worldId: "w-pier" });
+    const route = state.routes.find((item) => item.name.startsWith("Колония"))!;
+    dispatch(state, {
+      type: "updateRoute",
+      routeId: route.id,
+      name: route.name,
+      stops: [
+        { worldId: "w-bread", actions: route.stops[0].actions },
+        { worldId: "w-beacon", actions: [] },
+        { worldId: "w-north", actions: [] },
+        { worldId: "w-pier", actions: [] },
+      ],
+    });
+    ship.worldId = "w-beacon";
+    ship.fromId = "w-beacon";
+    ship.status = "docked";
+    ship.stopIndex = 1;
+    ship.tollWorldId = "w-beacon";
+    runTicks(state, 1);
+    const kept = state.routes.find((item) => item.id === route.id);
+    expect(ship.routeId).toBe(route.id);
+    expect(kept?.stops.map((stop) => stop.worldId)).toEqual(["w-bread", "w-beacon", "w-north", "w-pier"]);
+    expect(kept?.stops[1].actions).toEqual([]);
+  });
+
+  it("удовлетворённость объектом не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const raw = JSON.parse(serialize(state)) as { state: { worlds: Array<{ satisfaction: unknown }> } };
+    raw.state.worlds[0].satisfaction = {};
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
+
+  it("чужой корабль на карте не становится целью команд флота", () => {
+    const owned = { id: "s-own", houseId: "h-player", status: "docked" };
+    const rival = { id: "s-rival", houseId: "h-other", status: "docked" };
+    expect(fleetCommandShipId(rival, "h-player", owned.id)).toBe(owned.id);
+    expect(fleetCommandShipId(owned, "h-player", "s-other-owned")).toBe(owned.id);
+    expect(fleetCommandShipId(undefined, "h-player", owned.id)).toBe(owned.id);
+  });
+
+  it("оплата содержания снимает предупреждение в пути", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    for (const world of state.worlds) {
+      if (world.ownerId === player.id) world.population = 0;
+    }
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    ship.status = "transit";
+    ship.worldId = null;
+    ship.fromId = "w-bread";
+    ship.toId = "w-harbor";
+    ship.legDistance = 200;
+    ship.distanceLeft = 200;
+    ship.stopReason = "нет денег на содержание корабля";
+    player.credits = 0;
+    runTicks(state, 1);
+    expect(ship.distanceLeft).toBe(200);
+    expect(ship.stopReason).toBe("нет денег на содержание корабля");
+    player.credits = 100;
+    runTicks(state, 1);
+    expect(ship.distanceLeft).toBeLessThan(200);
+    expect(ship.status).toBe("transit");
+    expect(ship.stopReason).toBeNull();
   });
 });

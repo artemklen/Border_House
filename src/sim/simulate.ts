@@ -206,6 +206,7 @@ function sail(state: SimState): void {
         continue;
       }
       paidUpkeep.add(ship.id);
+      if (ship.stopReason === "нет денег на содержание корабля") ship.stopReason = null;
       ship.distanceLeft -= step;
       ship.traveled += step;
       if (ship.distanceLeft <= 0) {

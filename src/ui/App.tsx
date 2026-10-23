@@ -17,6 +17,7 @@ import {
   colonyShip,
   explainShip,
   fleetPickId,
+  fleetCommandShipId,
   foodPerDay,
   formatDay,
   governorBlurb,
@@ -339,7 +340,7 @@ export function App() {
                   <FleetPanel
                     sim={sim}
                     houseId={player.id}
-                    shipId={selectedShip?.id ?? shipId}
+                    shipId={fleetCommandShipId(selectedShip, player.id, shipId)}
                     draftName={draftName}
                     stops={draftStops}
                     stopWorld={stopWorld}
@@ -359,7 +360,7 @@ export function App() {
                       return copy;
                     })}
                     onClear={() => setDraftStops([])}
-                    onCreate={() => act({ type: "createRoute", houseId: player.id, name: draftName, stops: draftStops, shipId: (selectedShip?.id ?? shipId) || undefined })}
+                    onCreate={() => act({ type: "createRoute", houseId: player.id, name: draftName, stops: draftStops, shipId: fleetCommandShipId(selectedShip, player.id, shipId) || undefined })}
                     onPause={(routeId, next) => act({ type: "pauseRoute", routeId, paused: next })}
                     onAssign={(id, routeId) => act({ type: "assignShip", shipId: id, routeId })}
                     onUpdate={(routeId) => act({ type: "updateRoute", routeId, name: draftName, stops: draftStops })}

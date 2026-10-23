@@ -375,12 +375,13 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
   const house = houseOf(state, ship.houseId);
   if (!target || !house) return fail("нет цели колонии");
   const route = routeOf(state, ship.routeId);
+  const solo = Boolean(route && state.ships.every((other) => other.id === ship.id || other.routeId !== route.id));
   const dedicated = Boolean(
     route
+    && solo
     && route.name.startsWith(`Колония ${target.name}`)
-    && route.stops[0]?.worldId === ship.worldId
-    && route.stops.some((stop) => stop.worldId === target.id)
-    && state.ships.every((other) => other.id === ship.id || other.routeId !== route.id),
+    && route.stops.some((stop) => stop.worldId === ship.worldId)
+    && route.stops.some((stop) => stop.worldId === target.id),
   );
   if (!dedicated) {
     const created = createRoute(
@@ -397,11 +398,11 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
     if (!created.ok) return created;
   }
   const current = routeOf(state, ship.routeId);
-  const origin = current?.stops.find((stop) => stop.worldId === ship.worldId);
-  if (origin && current && state.ships.every((other) => other.id === ship.id || other.routeId !== current.id)) {
+  const origin = current?.stops[0];
+  if (origin && current && origin.worldId === ship.worldId && state.ships.every((other) => other.id === ship.id || other.routeId !== current.id)) {
     origin.actions = colonyLoadActions(state, ship);
+    ship.visitKey = "";
   }
-  ship.visitKey = "";
   return ok();
 }
 
