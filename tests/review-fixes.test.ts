@@ -1705,7 +1705,7 @@ describe("замечания ревью", () => {
 
   it("рейс за едой ищет другое топливо, если порт пуст", () => {
     const state = createGame({ seed: 21, scenario: "base" });
-    runTicks(state, 45);
+    runTicks(state, 80);
     const cliff = state.worlds.find((world) => world.id === "w-fuel")!;
     for (const name of ["Дом Вега", "Дом Орион"]) {
       const house = state.houses.find((item) => item.name === name)!;

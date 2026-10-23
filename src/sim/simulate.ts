@@ -277,7 +277,11 @@ function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
   if (routeNow?.returnRouteId && routeOf(state, routeNow.returnRouteId)) {
     const fueled = routeNow.stops.some((stop) => stop.worldId === world.id && stop.actions.some((action) => action.good === "fuel" && (action.mode === "load" || action.mode === "buy")));
     if (fueled && ship.cargo.fuel >= 20) {
+      const refuelId = routeNow.id;
       dispatch(state, { type: "assignShip", shipId: ship.id, routeId: routeNow.returnRouteId });
+      if (state.ships.every((other) => other.routeId !== refuelId)) {
+        state.routes = state.routes.filter((route) => route.id !== refuelId);
+      }
       return;
     }
   }

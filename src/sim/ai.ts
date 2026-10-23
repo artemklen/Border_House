@@ -139,7 +139,9 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     return !(open && here.stock.fuel > 0);
   });
   const refuelName = dry ? `Заправка ${dry.name}` : "";
-  const alreadyRefueling = dry ? state.routes.some((route) => route.houseId === house.id && route.name === refuelName) : false;
+  const alreadyRefueling = dry
+    ? state.routes.some((route) => route.houseId === house.id && route.name === refuelName && state.ships.some((ship) => ship.routeId === route.id))
+    : false;
   if (dry?.worldId && !alreadyRefueling && !reserved.has(dry.id)) {
     const here = worldOf(state, dry.worldId);
     const reachable = here ? reachableFuelWorld(state, dry, here) : undefined;
