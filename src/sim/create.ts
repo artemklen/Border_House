@@ -126,6 +126,7 @@ export function endowWorld(
     imported: {},
     produced: emptyGoods(),
     eaten: 0,
+    foodCredit: 0,
     lastImported: {},
     lastProduced: emptyGoods(),
     lastEaten: 0,

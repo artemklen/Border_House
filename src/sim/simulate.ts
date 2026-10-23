@@ -10,7 +10,7 @@ import {
   destroyGoods,
   distance,
   emptyFlow,
-  foodNeed,
+  takeFoodRation,
   houseOf,
   moveCredits,
   moveGoods,
@@ -152,9 +152,11 @@ function runBuilding(state: SimState, world: World, building: Building): void {
 
 function feedWorlds(state: SimState): void {
   for (const world of byId(state.worlds)) {
-    const need = foodNeed(world.population, state.rules.foodPer100);
+    const ration = takeFoodRation(world.population, state.rules.foodPer100, world.foodCredit ?? 0);
+    world.foodCredit = ration.credit;
+    const need = ration.need;
     world.demand.food += need;
-    if (need <= 0 || !world.ownerId) continue;
+    if (!world.ownerId || world.population <= 0) continue;
     const owner = houseOf(state, world.ownerId);
     if (!owner) continue;
     const price = Math.max(1, world.prices.food);
@@ -167,8 +169,10 @@ function feedWorlds(state: SimState): void {
       world.eaten += qty;
     }
     const governor = personOf(state, world.governorId);
-    if (qty >= need) world.satisfaction = Math.min(100, world.satisfaction + 2);
-    else world.satisfaction = Math.max(0, world.satisfaction - (governor?.traits.includes("запасник") ? 1 : 3));
+    if (need > 0) {
+      if (qty >= need) world.satisfaction = Math.min(100, world.satisfaction + 2);
+      else world.satisfaction = Math.max(0, world.satisfaction - (governor?.traits.includes("запасник") ? 1 : 3));
+    }
     let tax = Math.floor((world.population * state.rules.taxPer100) / 100);
     const head = headOf(state, world.ownerId);
     if (head?.traits.includes("казначей")) tax = Math.floor(tax * 1.1);
@@ -377,6 +381,8 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       else if (affordable <= 0) {
         ship.stopReason = "у покупателя нет денег";
         hold = true;
+      } else if (action.good === "fuel" && ship.cargo.fuel > 0) {
+        ship.stopReason = "в трюме нет места для дополнительного топлива";
       } else {
         ship.stopReason = "нет места под груз или на складе";
         hold = true;
@@ -425,8 +431,7 @@ function depart(state: SimState, ship: Ship, route: Route): void {
   const here = planned && planned.worldId === ship.worldId
     ? ship.stopIndex
     : route.stops.findIndex((stop) => stop.worldId === ship.worldId);
-  const index = here >= 0 ? here : ship.stopIndex;
-  const nextIndex = (index + 1) % route.stops.length;
+  const nextIndex = here >= 0 ? (here + 1) % route.stops.length : Math.min(Math.max(ship.stopIndex, 0), route.stops.length - 1);
   const next = route.stops[nextIndex];
   const origin = worldOf(state, ship.worldId);
   const dest = worldOf(state, next.worldId);
@@ -508,24 +513,27 @@ function updatePrices(state: SimState): void {
 
 function closeTreaties(state: SimState): void {
   for (const treaty of state.treaties) {
+    const tracked = treaty.status === "active" && (treaty.kind === "supply" || treaty.kind === "exchange");
+    if (tracked) {
+      treaty.windowDays += 1;
+      const ending = state.tick >= treaty.endTick;
+      if (treaty.windowDays >= state.rules.window || ending) {
+        if (treaty.delivered < treaty.qtyPerWindow) {
+          treaty.status = "broken";
+          shiftRelation(state, treaty.proposerId, treaty.targetId, -12);
+          note(state, treaty.targetId, `Договор сорван: поставлено ${treaty.delivered} из ${treaty.qtyPerWindow}. Отношения хуже, товар из воздуха не появился.`);
+        } else {
+          shiftRelation(state, treaty.proposerId, treaty.targetId, 3);
+          note(state, treaty.targetId, `Поставка выполнена: ${treaty.delivered} ед. за окно.`);
+          treaty.delivered = 0;
+          treaty.windowDays = 0;
+        }
+      }
+    }
     if (treaty.status === "active" && state.tick >= treaty.endTick) {
       treaty.status = "expired";
       note(state, treaty.targetId, "Срок договора истёк.");
-      continue;
     }
-    if (treaty.status !== "active" || (treaty.kind !== "supply" && treaty.kind !== "exchange")) continue;
-    treaty.windowDays += 1;
-    if (treaty.windowDays < state.rules.window) continue;
-    if (treaty.delivered < treaty.qtyPerWindow) {
-      treaty.status = "broken";
-      shiftRelation(state, treaty.proposerId, treaty.targetId, -12);
-      note(state, treaty.targetId, `Договор сорван: поставлено ${treaty.delivered} из ${treaty.qtyPerWindow}. Отношения хуже, товар из воздуха не появился.`);
-    } else {
-      shiftRelation(state, treaty.proposerId, treaty.targetId, 3);
-      note(state, treaty.targetId, `Поставка выполнена: ${treaty.delivered} ед. за окно.`);
-    }
-    treaty.delivered = 0;
-    treaty.windowDays = 0;
   }
   for (const world of state.worlds) {
     world.windowDays += 1;

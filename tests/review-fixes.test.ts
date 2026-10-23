@@ -5,7 +5,7 @@ import { createGame } from "../src/sim/create";
 import { createExpansionScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
 import { sumGoods } from "../src/sim/goods";
 import { audit } from "../src/sim/mutate";
-import { deserialize, SaveError, serialize } from "../src/sim/save";
+import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
 import { keptWorldId } from "../src/sim/view";
 
@@ -223,5 +223,134 @@ describe("замечания ревью", () => {
     runTicks(state, 30);
     expect(state.worlds.find((world) => world.id === "e-free")?.ownerId).toBe(ai.id);
     expect(audit(state).ok).toBe(true);
+  });
+
+  it("маленькая колония потребляет еду накопительно и платит налог без дневной нормы", () => {
+    const state = createExpansionScenario();
+    state.aiEnabled = false;
+    const owner = state.houses.find((house) => !house.player)!;
+    const world = state.worlds.find((item) => item.id === "e-free")!;
+    world.ownerId = owner.id;
+    world.population = 70;
+    world.satisfaction = 42;
+    world.popWallet = 2000;
+    state.accounts.creditsCreated += 2000;
+    runTicks(state, 3);
+    expect(world.popWallet).toBeLessThan(2000);
+    expect(world.satisfaction).toBeLessThan(42);
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("сохранение без цен мира не принимается", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const broken = JSON.parse(serialize(state)) as { state: { worlds: Array<{ prices?: unknown }> } };
+    delete broken.state.worlds[0].prices;
+    expect(() => deserialize(JSON.stringify(broken))).toThrow(SaveError);
+  });
+
+  it("сбой записи автосохранения не бросает исключение наружу", () => {
+    const storage = { setItem() { throw new Error("quota"); } };
+    expect(storeSave(storage, "key", "{}")).toBe(false);
+    expect(storeSave({ setItem() { return undefined; } }, "key", "{}")).toBe(true);
+  });
+
+  it("новое назначение корабля отменяет колониальный приказ", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread" && item.classId === "freighter")!;
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: ship.id, worldId: "w-bay" });
+    expect(ship.mission?.type).toBe("colonize");
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Обычный",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 8, price: 0, keep: 20 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    expect(ship.mission).toBeNull();
+    const routeId = ship.routeId;
+    runTicks(state, 1);
+    expect(ship.mission).toBeNull();
+    expect(ship.routeId).toBe(routeId);
+    expect(state.routes.find((route) => route.id === routeId)?.stops.some((stop) => stop.worldId === "w-bay")).toBe(false);
+  });
+
+  it("покупка топлива при полном трюме не запирает корабль, если топливо уже есть", () => {
+    const state = createGame({ seed: 4, scenario: "base" });
+    state.aiEnabled = false;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const ship = state.ships.find((item) => item.houseId === vega.id && item.classId === "freighter")!;
+    ship.worldId = "w-bread";
+    ship.fromId = "w-bread";
+    ship.status = "docked";
+    const removedFuel = ship.cargo.fuel - 45;
+    ship.cargo.fuel = 45;
+    if (removedFuel > 0) state.accounts.goodsDestroyed.fuel += removedFuel;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: vega.id,
+      name: "Закупка",
+      shipId: ship.id,
+      stops: [
+        {
+          worldId: "w-bread",
+          actions: [
+            { good: "food", mode: "buy", amount: 25, price: 100, keep: 0 },
+            { good: "fuel", mode: "buy", amount: 20, price: 100, keep: 0 },
+          ],
+        },
+        { worldId: "w-vega", actions: [{ good: "food", mode: "sell", amount: 10, price: 1, keep: 0 }] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    expect(ship.toId).toBe("w-vega");
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("последнее окно поставки проверяется до истечения договора", () => {
+    const state = createGame({ seed: 4, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const before = player.relation[vega.id];
+    dispatch(state, {
+      type: "proposeTreaty",
+      houseId: player.id,
+      otherId: vega.id,
+      kind: "exchange",
+      tariffBps: 300,
+      good: "food",
+      qtyPerWindow: 8,
+      duration: 24,
+    });
+    const treaty = state.treaties.find((item) => item.proposerId === player.id)!;
+    dispatch(state, { type: "respondTreaty", houseId: vega.id, treatyId: treaty.id, accept: true });
+    runTicks(state, 24);
+    expect(treaty.status).toBe("broken");
+    expect(player.relation[vega.id]).toBeLessThan(before);
+  });
+
+  it("корабль вне маршрута сначала идёт на первую остановку", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-harbor" && item.classId === "freighter")!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Сбор",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 8, price: 0, keep: 20 }] },
+        { worldId: "w-vega", actions: [{ good: "food", mode: "sell", amount: 8, price: 1, keep: 0 }] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.toId).toBe("w-bread");
   });
 });

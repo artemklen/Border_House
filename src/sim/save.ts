@@ -13,6 +13,16 @@ export function serialize(state: SimState): string {
   return JSON.stringify({ version: 1, state });
 }
 
+/** false, если браузер отказал в записи. Исключение не выходит наружу, чтобы игровой цикл не остановился. */
+export function storeSave(storage: { setItem(key: string, value: string): void }, key: string, raw: string): boolean {
+  try {
+    storage.setItem(key, raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function deserialize(raw: string): SimState {
   let parsed: unknown;
   try {
@@ -32,6 +42,12 @@ export function deserialize(raw: string): SimState {
 }
 
 const LISTS = ["houses", "worlds", "ships", "routes", "treaties", "people", "journal", "aiLog"] as const;
+
+function requireGoods(value: unknown, label: string): void {
+  if (!value || typeof value !== "object") throw new SaveError(`Файл сохранения повреждён: нет поля «${label}».`);
+  const pile = value as Record<string, unknown>;
+  if (GOODS.some((good) => typeof pile[good] !== "number")) throw new SaveError(`Файл сохранения повреждён: поле «${label}» неполное.`);
+}
 
 function assertPlayable(state: SimState): void {
   if (state.version !== 1) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
@@ -57,6 +73,14 @@ function assertPlayable(state: SimState): void {
       throw new SaveError("Файл сохранения повреждён: мир без склада.");
     }
     if (GOODS.some((good) => typeof world.stock[good] !== "number")) throw new SaveError("Файл сохранения повреждён: склад мира неполный.");
+    requireGoods(world.prices, "цены");
+    requireGoods(world.demand, "спрос");
+    requireGoods(world.deposits, "месторождения");
+    requireGoods(world.produced, "производство");
+    if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.popWallet !== "number") {
+      throw new SaveError("Файл сохранения повреждён: население или кошелёк мира нечисловые.");
+    }
+    if (!world.imported || typeof world.imported !== "object") throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
     if (world.ownerId && !houseIds.has(world.ownerId)) throw new SaveError("Файл сохранения повреждён: мир ссылается на неизвестный дом.");
     worldIds.add(world.id);
   }

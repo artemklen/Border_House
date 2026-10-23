@@ -209,8 +209,9 @@ function foodStops(house: House, source: World, dest: World): RouteStop[] {
   const inbound = dest.ownerId === house.id
     ? { good: "food" as const, mode: "unload" as const, amount: 40, price: 0, keep: 0 }
     : { good: "food" as const, mode: "sell" as const, amount: 36, price: 1, keep: 0 };
+  const fuel = { good: "fuel" as const, mode: source.ownerId === house.id ? "load" as const : "buy" as const, amount: 20, price: 30, keep: 10 };
   return [
-    { worldId: source.id, actions: [outbound, { good: "fuel", mode: source.ownerId === house.id ? "load" : "buy", amount: 20, price: 30, keep: 10 }] },
+    { worldId: source.id, actions: [fuel, outbound] },
     { worldId: dest.id, actions: [inbound] },
   ];
 }

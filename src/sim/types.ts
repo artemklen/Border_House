@@ -113,6 +113,8 @@ export interface World {
   imported: Record<string, Goods>;
   produced: Goods;
   eaten: number;
+  /** Остаток спроса на еду, меньший одной единицы. Копится, чтобы малое население всё же ело. */
+  foodCredit: number;
   lastImported: Record<string, Goods>;
   lastProduced: Goods;
   lastEaten: number;

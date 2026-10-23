@@ -151,7 +151,7 @@ function buildShip(state: SimState, command: Extract<Command, { type: "buildShip
   return ok(`верфь займёт ${shipClass.days} дн.`);
 }
 
-function createRoute(state: SimState, houseId: string, name: string, stops: RouteStop[], shipId?: string): CommandResult {
+function createRoute(state: SimState, houseId: string, name: string, stops: RouteStop[], shipId?: string, keepMission = false): CommandResult {
   const house = houseOf(state, houseId);
   if (!house) return fail("дом не найден");
   const checked = validateStops(state, stops);
@@ -172,7 +172,7 @@ function createRoute(state: SimState, houseId: string, name: string, stops: Rout
   state.routes.push(route);
   note(state, houseId, `Проложен маршрут «${route.name}».`);
   if (shipId) {
-    const assigned = assignShip(state, shipId, route.id);
+    const assigned = assignShip(state, shipId, route.id, keepMission);
     if (!assigned.ok) return assigned;
   }
   return ok("маршрут создан");
@@ -204,7 +204,7 @@ function pauseRoute(state: SimState, routeId: string, paused: boolean): CommandR
   return ok(paused ? "пауза" : "маршрут снят с паузы");
 }
 
-function assignShip(state: SimState, shipId: string, routeId: string | null): CommandResult {
+function assignShip(state: SimState, shipId: string, routeId: string | null, keepMission = false): CommandResult {
   const ship = shipOf(state, shipId);
   if (!ship) return fail("корабль не найден");
   if (ship.status === "building") return fail("корабль ещё строится");
@@ -218,6 +218,7 @@ function assignShip(state: SimState, shipId: string, routeId: string | null): Co
   if (!route) return fail("маршрут не найден");
   if (route.houseId !== ship.houseId) return fail("чужой маршрут");
   ship.routeId = route.id;
+  if (!keepMission) ship.mission = null;
   if (ship.status !== "transit" && ship.worldId) {
     const index = route.stops.findIndex((stop) => stop.worldId === ship.worldId);
     ship.stopIndex = index >= 0 ? index : 0;
@@ -358,6 +359,7 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
         { worldId: target.id, actions: [] },
       ],
       ship.id,
+      true,
     );
     if (!created.ok) return created;
     route = routeOf(state, ship.routeId);

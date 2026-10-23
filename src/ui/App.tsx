@@ -6,7 +6,7 @@ import { createGame } from "../sim/create";
 import { createExpansionScenario, createGrainScenario, createSuccessionScenario } from "../sim/diagnostics";
 import { GOODS, GOOD_NAME, type GoodId } from "../sim/goods";
 import { foodCover, foodNeed, houseOf, worldOf } from "../sim/mutate";
-import { deserialize, serialize, SaveError } from "../sim/save";
+import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
 import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
 import {
@@ -89,7 +89,9 @@ export function App() {
         const plan = planFrame(clockRef.current, dt, current.tick, 24);
         if (plan.steps > 0) {
           for (let index = 0; index < plan.steps; index += 1) tick(current);
-          if (plan.autosave) localStorage.setItem(AUTOSAVE_KEY, serialize(current));
+          if (plan.autosave && !storeSave(localStorage, AUTOSAVE_KEY, serialize(current))) {
+            setMessage("Автосохранение не записалось. Партия продолжается.");
+          }
           setSim({ ...current });
         }
         const canvas = canvasRef.current;
@@ -400,8 +402,8 @@ export function App() {
                   <GamePanel
                     sim={sim}
                     onSave={() => {
-                      localStorage.setItem(AUTOSAVE_KEY, serialize(sim));
-                      setMessage("Партия записана в браузер.");
+                      const saved = storeSave(localStorage, AUTOSAVE_KEY, serialize(sim));
+                      setMessage(saved ? "Партия записана в браузер." : "Браузер не принял запись. Партия на экране сохранена.");
                     }}
                     onExport={() => download(serialize(sim), `border-house-${sim.seed}.json`)}
                     onImport={(raw) => loadRaw(raw)}

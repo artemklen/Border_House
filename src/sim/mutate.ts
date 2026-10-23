@@ -207,6 +207,13 @@ export function foodNeed(population: number, foodPer100: number): number {
   return Math.floor((population * foodPer100) / 100);
 }
 
+/** Дневная пайка с переносом остатка: 70 жителей при норме 1 на 100 едят не каждый день, но не остаются вечно сытыми на бумаге. */
+export function takeFoodRation(population: number, foodPer100: number, credit: number): { need: number; credit: number } {
+  const pending = population * foodPer100 + Math.max(0, credit);
+  if (pending <= 0) return { need: 0, credit: 0 };
+  return { need: Math.floor(pending / 100), credit: pending % 100 };
+}
+
 export function foodCover(population: number, food: number, foodPer100: number): number {
   const need = foodNeed(population, foodPer100);
   if (need <= 0) return 999;
