@@ -147,7 +147,7 @@ function buildShip(state: SimState, command: Extract<Command, { type: "buildShip
     tollWorldId: world.id,
     supplyFrom: {},
     visitKey: "",
-    visitMoved: emptyGoods(),
+    visitMoved: [],
   });
   note(state, command.houseId, `Заложена ${shipClass.name} на «${world.name}».`);
   return ok(`верфь займёт ${shipClass.days} дн.`);
@@ -188,6 +188,11 @@ function updateRoute(state: SimState, routeId: string, name: string, stops: Rout
   const flying = state.ships.some((ship) => ship.routeId === route.id && ship.status === "transit");
   route.stops = stops;
   route.name = name.trim() || route.name;
+  for (const ship of state.ships) {
+    if (ship.routeId !== route.id || ship.status === "transit") continue;
+    ship.visitKey = "";
+    ship.visitMoved = [];
+  }
   note(
     state,
     route.houseId,

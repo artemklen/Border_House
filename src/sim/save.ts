@@ -1,3 +1,4 @@
+import { SHIP_CLASSES } from "./config";
 import { GOODS } from "./goods";
 import type { SimState } from "./types";
 
@@ -100,6 +101,7 @@ function assertPlayable(state: SimState): void {
   }
   for (const ship of state.ships) {
     if (!ship || typeof ship.id !== "string" || !ship.cargo || !houseIds.has(ship.houseId)) throw new SaveError("Файл сохранения повреждён: корабль без трюма.");
+    if (!(ship.classId in SHIP_CLASSES)) throw new SaveError("Файл сохранения повреждён: неизвестный класс корабля.");
     if (GOODS.some((good) => typeof ship.cargo[good] !== "number")) throw new SaveError("Файл сохранения повреждён: трюм корабля неполный.");
     if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
     if (ship.routeId && !routeIds.has(ship.routeId)) throw new SaveError("Файл сохранения повреждён: корабль ссылается на неизвестный маршрут.");

@@ -177,7 +177,7 @@ export function placeShip(state: SimState, houseId: string, world: World, classI
     traveled: 0,
     supplyFrom: {},
     visitKey: "",
-    visitMoved: emptyGoods(),
+    visitMoved: [],
   };
   state.ships.push(ship);
   if (fuel > 0) createGoods(ship.cargo, state.accounts, "fuel", fuel);

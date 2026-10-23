@@ -228,6 +228,10 @@ function handleDock(state: SimState, ship: Ship): void {
   const world = worldOf(state, ship.worldId);
   if (!world) return;
   if (ship.status === "blocked") ship.status = "docked";
+  if (!payUpkeep(state, ship)) {
+    block(ship, "нет денег на содержание корабля");
+    return;
+  }
   if (accessDenied(state, ship.houseId, world)) {
     block(ship, "нет доступа: эмбарго");
     return;
@@ -239,10 +243,6 @@ function handleDock(state: SimState, ship: Ship): void {
     if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id && !world.ownerId) {
       const founded = foundColony(state, ship, world);
       if (!founded.ok) block(ship, founded.reason);
-    }
-    if (!payUpkeep(state, ship)) {
-      block(ship, "нет денег на содержание корабля");
-      return;
     }
     ship.stopReason = "маршрут на паузе";
     return;
@@ -256,12 +256,9 @@ function handleDock(state: SimState, ship: Ship): void {
       stuck = true;
     }
   }
-  if (!payUpkeep(state, ship)) {
-    block(ship, "нет денег на содержание корабля");
-    return;
-  }
   if (hold || stuck) return;
-  if (activeRoute) depart(state, ship, activeRoute);
+  const routeNow = routeOf(state, ship.routeId);
+  if (routeNow) depart(state, ship, routeNow);
 }
 
 function payUpkeep(state: SimState, ship: Ship): boolean {
@@ -310,8 +307,10 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     return false;
   }
   ensureVisit(ship);
-  for (const action of stop.actions) {
-    const wanted = action.amount - (ship.visitMoved[action.good] ?? 0);
+  for (let index = 0; index < stop.actions.length; index += 1) {
+    const action = stop.actions[index];
+    const moved = ship.visitMoved[index] ?? 0;
+    const wanted = action.amount - moved;
     if (wanted <= 0) continue;
     const roomCargo = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
     const roomStock = world.capacity - sumGoods(world.stock);
@@ -324,7 +323,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       if (qty <= 0) ship.stopReason = `нечего грузить: ${goodLabel(action.good)}`;
       else {
         moveGoods(world.stock, ship.cargo, action.good, qty);
-        ship.visitMoved[action.good] += qty;
+        ship.visitMoved[index] = moved + qty;
         ship.supplyFrom[action.good] = ship.houseId;
       }
       continue;
@@ -341,7 +340,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       }
       if (qty > 0) {
         moveGoods(ship.cargo, world.stock, action.good, qty);
-        ship.visitMoved[action.good] += qty;
+        ship.visitMoved[index] = moved + qty;
         const originHouse = ship.supplyFrom[action.good];
         if (originHouse) {
           if (!world.imported[originHouse]) world.imported[originHouse] = emptyGoods();
@@ -395,7 +394,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       continue;
     }
     moveGoods(sellerPile, buyerPile, action.good, qty);
-    ship.visitMoved[action.good] += qty;
+    ship.visitMoved[index] = moved + qty;
     if (action.mode === "buy") ship.supplyFrom[action.good] = world.ownerId ?? ship.houseId;
     moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, qty * price);
     buyer.flow.purchases += qty * price;
@@ -406,15 +405,19 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     if (action.mode === "sell") route.revenue += qty * price;
     else route.cost += qty * price;
     countDelivery(state, sellerHouse, world, action.good, qty);
+    if (action.mode === "sell" && qty < wanted && room <= qty) {
+      ship.stopReason = "склад заполнен";
+      hold = true;
+    }
   }
   return hold;
 }
 
 function ensureVisit(ship: Ship): void {
   const key = `${ship.worldId ?? ""}:${ship.stopIndex}:${ship.routeId ?? ""}`;
-  if (ship.visitKey !== key || !ship.visitMoved) {
+  if (ship.visitKey !== key || !Array.isArray(ship.visitMoved)) {
     ship.visitKey = key;
-    ship.visitMoved = emptyGoods();
+    ship.visitMoved = [];
   }
 }
 

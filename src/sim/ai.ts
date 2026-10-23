@@ -60,6 +60,7 @@ function judgeTreaty(state: SimState, house: House, treaty: Treaty): { accept: b
 
 function ideas(state: SimState, house: House): Array<{ command: Command; because: string }> {
   const plans: Array<{ command: Command; because: string }> = [];
+  const reserved = new Set<string>();
   const owned = byId(state.worlds).filter((world) => world.ownerId === house.id);
   const hungry = owned
     .filter((world) => foodCover(world.population, world.stock.food, state.rules.foodPer100) < 18)
@@ -79,8 +80,9 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     }
     const source = foodSource(state, house, world);
     if (source && !linked(state, house.id, source.id, world.id, "food")) {
-      const ship = idleShip(state, house.id);
+      const ship = idleShip(state, house.id, reserved);
       if (ship) {
+        reserved.add(ship.id);
         plans.push({
           command: {
             type: "createRoute",
@@ -103,8 +105,9 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
       if (!missing) continue;
       const upstream = INPUT_BUILDING[missing];
       const source = stockSource(state, house, world, missing);
-      const ship = idleShip(state, house.id);
+      const ship = idleShip(state, house.id, reserved);
       if (source && ship && !linked(state, house.id, source.id, world.id, missing)) {
+        reserved.add(ship.id);
         plans.push({
           command: {
             type: "createRoute",
@@ -127,10 +130,11 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
   const dry = byId(state.ships).find((ship) => ship.houseId === house.id && ship.stopReason?.includes("топлив") && ship.worldId && ship.status !== "transit");
   const refuelName = dry ? `Заправка ${dry.name}` : "";
   const alreadyRefueling = dry ? state.routes.some((route) => route.houseId === house.id && route.name === refuelName) : false;
-  if (dry?.worldId && !alreadyRefueling) {
+  if (dry?.worldId && !alreadyRefueling && !reserved.has(dry.id)) {
     const here = worldOf(state, dry.worldId);
     const reachable = here ? reachableFuelWorld(state, dry, here) : undefined;
     if (here && reachable) {
+      reserved.add(dry.id);
       const reserve = 8;
       const room = SHIP_CLASSES[dry.classId].capacity - sumGoods(dry.cargo);
       const gained = Math.max(0, Math.min(24, here.stock.fuel - reserve, room));
@@ -175,9 +179,10 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
 
   if (house.profile === "expansionist" || house.credits > 24000) {
     const home = owned.find((world) => world.stock.food >= state.rules.colonizeFood + 15 && world.stock.parts >= state.rules.colonizeParts && world.stock.fuel >= 20);
-    const ship = home ? state.ships.find((item) => item.houseId === house.id && item.worldId === home.id && item.status === "docked" && !item.mission) : undefined;
+    const ship = home ? state.ships.find((item) => item.houseId === house.id && item.worldId === home.id && item.status === "docked" && !item.mission && !reserved.has(item.id)) : undefined;
     const free = byId(state.worlds).find((world) => world.ownerId === null);
     if (home && ship && free && house.credits >= state.rules.colonizeCost + 1500) {
+      reserved.add(ship.id);
       plans.push({
         command: { type: "colonize", houseId: house.id, shipId: ship.id, worldId: free.id },
         because: `${house.name} снаряжает колонию на «${free.name}»: есть продовольствие, комплектующие и ${house.credits} кред.`,
@@ -278,8 +283,8 @@ function linked(state: SimState, houseId: string, a: string, b: string, good: Go
   });
 }
 
-function idleShip(state: SimState, houseId: string): Ship | undefined {
-  return byId(state.ships).find((ship) => ship.houseId === houseId && ship.status === "docked" && !ship.routeId && !ship.mission);
+function idleShip(state: SimState, houseId: string, reserved: ReadonlySet<string>): Ship | undefined {
+  return byId(state.ships).find((ship) => ship.houseId === houseId && ship.status === "docked" && !ship.routeId && !ship.mission && !reserved.has(ship.id));
 }
 
 function missingGood(reason: string | null): GoodId | null {
