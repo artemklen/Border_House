@@ -15,9 +15,14 @@ export function serialize(state: SimState): string {
 }
 
 /** false, если браузер отказал в записи. Исключение не выходит наружу, чтобы игровой цикл не остановился. */
-export function storeSave(storage: { setItem(key: string, value: string): void }, key: string, raw: string): boolean {
+export function storeSave(
+  storage: { setItem(key: string, value: string): void } | (() => { setItem(key: string, value: string): void }),
+  key: string,
+  raw: string,
+): boolean {
   try {
-    storage.setItem(key, raw);
+    const target = typeof storage === "function" ? storage() : storage;
+    target.setItem(key, raw);
     return true;
   } catch {
     return false;
@@ -55,7 +60,10 @@ function assertPlayable(state: SimState): void {
   for (const key of LISTS) {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
   }
-  if (!state.rules || typeof state.rules.ticksPerYear !== "number") throw new SaveError("Файл сохранения повреждён: нет правил.");
+  if (!state.rules) throw new SaveError("Файл сохранения повреждён: нет правил.");
+  for (const key of ["ticksPerYear", "foodPer100", "wage", "taxPer100", "territoryRadius", "colonizeFood", "colonizeParts", "colonizeCost", "colonizePop", "aiInterval", "window", "stockCapacity", "deathStartAge", "deathCertainAge"] as const) {
+    if (typeof state.rules[key] !== "number") throw new SaveError("Файл сохранения повреждён: нет правил.");
+  }
   requireGoods(state.rules.basePrice, "базовые цены");
   if (!state.accounts || typeof state.accounts.creditsCreated !== "number" || typeof state.accounts.creditsDestroyed !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет счетов.");
@@ -85,7 +93,7 @@ function assertPlayable(state: SimState): void {
     requireGoods(world.demand, "спрос");
     requireGoods(world.deposits, "месторождения");
     requireGoods(world.produced, "производство");
-    if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.popWallet !== "number") {
+    if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.popWallet !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number") {
       throw new SaveError("Файл сохранения повреждён: население или кошелёк мира нечисловые.");
     }
     if (!world.imported || typeof world.imported !== "object") throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
@@ -113,8 +121,16 @@ function assertPlayable(state: SimState): void {
     normalizeSupply(ship);
     if (ship.routeId && !routeIds.has(ship.routeId)) throw new SaveError("Файл сохранения повреждён: корабль ссылается на неизвестный маршрут.");
   }
+  for (const treaty of state.treaties) {
+    if (!treaty || typeof treaty.status !== "string" || typeof treaty.kind !== "string" || typeof treaty.proposerId !== "string" || typeof treaty.targetId !== "string") {
+      throw new SaveError("Файл сохранения повреждён: договор повреждён.");
+    }
+    if (typeof treaty.windowDays !== "number" || typeof treaty.endTick !== "number" || typeof treaty.delivered !== "number" || typeof treaty.qtyPerWindow !== "number") {
+      throw new SaveError("Файл сохранения повреждён: договор повреждён.");
+    }
+  }
   for (const person of state.people) {
-    if (!person || typeof person.id !== "string" || !houseIds.has(person.houseId) || !Array.isArray(person.traits)) {
+    if (!person || typeof person.id !== "string" || !houseIds.has(person.houseId) || !Array.isArray(person.traits) || typeof person.ageDays !== "number") {
       throw new SaveError("Файл сохранения повреждён: человек без дома.");
     }
   }

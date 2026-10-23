@@ -242,25 +242,43 @@ function handleDock(state: SimState, ship: Ship): void {
   if (ship.mission?.type === "colonize" && ship.mission.worldId !== world.id) syncColonyRoute(state, ship);
   const activeRoute = routeOf(state, ship.routeId);
   if (activeRoute?.paused) {
-    if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id && !world.ownerId) {
-      const founded = foundColony(state, ship, world);
-      if (!founded.ok) block(ship, founded.reason);
+    if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id) {
+      if (world.ownerId) retireColony(state, ship);
+      else {
+        const founded = foundColony(state, ship, world);
+        if (!founded.ok) block(ship, founded.reason);
+      }
     }
     ship.stopReason = "маршрут на паузе";
     return;
   }
   const hold = activeRoute ? applyStop(state, ship, world, activeRoute) : false;
   let stuck = false;
-  if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id && !world.ownerId) {
-    const founded = foundColony(state, ship, world);
-    if (!founded.ok) {
-      block(ship, founded.reason);
+  if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id) {
+    if (world.ownerId) {
+      retireColony(state, ship);
       stuck = true;
+    } else {
+      const founded = foundColony(state, ship, world);
+      if (!founded.ok) {
+        block(ship, founded.reason);
+        stuck = true;
+      }
     }
   }
   if (hold || stuck) return;
   const routeNow = routeOf(state, ship.routeId);
   if (routeNow) depart(state, ship, routeNow);
+}
+
+function retireColony(state: SimState, ship: Ship): void {
+  const route = routeOf(state, ship.routeId);
+  ship.mission = null;
+  if (route && route.name.startsWith("Колония ") && state.ships.every((other) => other.id === ship.id || other.routeId !== route.id)) {
+    state.routes = state.routes.filter((item) => item.id !== route.id);
+  }
+  ship.routeId = null;
+  ship.stopReason = "цель колонии уже занята";
 }
 
 function payUpkeep(state: SimState, ship: Ship): boolean {
@@ -362,6 +380,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     const price = world.prices[action.good];
     const sellerHouse = action.mode === "sell" ? ship.houseId : world.ownerId;
     const buyerHouse = action.mode === "sell" ? world.ownerId : ship.houseId;
+    if (action.mode === "sell" && ship.cargo[action.good] - action.keep <= 0) continue;
     if (action.mode === "sell" && price < action.price) {
       ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
       hold = true;

@@ -151,6 +151,11 @@ export function hintLines(state: SimState): string[] {
   return tips.slice(0, 3);
 }
 
+export function fleetPickId(ship: { id: string; houseId: string; status: string }, playerId: string): string | null {
+  if (ship.houseId !== playerId || ship.status === "building") return null;
+  return ship.id;
+}
+
 export function colonyShip(ships: Ship[], houseId: string, preferredId: string): Ship | undefined {
   const preferred = ships.find((ship) => ship.id === preferredId && ship.houseId === houseId && ship.status !== "building");
   return preferred ?? ships.find((ship) => ship.houseId === houseId && ship.status !== "building");

@@ -8,7 +8,7 @@ import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
-import { bottlenecks, colonyShip, keptOtherHouseId, keptShipId, keptWorldId } from "../src/sim/view";
+import { bottlenecks, colonyShip, fleetPickId, keptOtherHouseId, keptShipId, keptWorldId } from "../src/sim/view";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -253,6 +253,7 @@ describe("замечания ревью", () => {
     const storage = { setItem() { throw new Error("quota"); } };
     expect(storeSave(storage, "key", "{}")).toBe(false);
     expect(storeSave({ setItem() { return undefined; } }, "key", "{}")).toBe(true);
+    expect(storeSave(() => { throw new Error("SecurityError"); }, "key", "{}")).toBe(false);
   });
 
   it("новое назначение корабля отменяет колониальный приказ", () => {
@@ -833,5 +834,71 @@ describe("замечания ревью", () => {
     bay.population = 70;
     bay.stock.food = 0;
     expect(bottlenecks(state, player.id).some((item) => item.title.startsWith(bay.name))).toBe(true);
+  });
+
+  it("сохранение без ставки зарплаты или с пустым договором не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const noWage = JSON.parse(serialize(state)) as { state: { rules: { wage?: number } } };
+    delete noWage.state.rules.wage;
+    expect(() => deserialize(JSON.stringify(noWage))).toThrow(SaveError);
+    const nullTreaty = JSON.parse(serialize(state)) as { state: { treaties: unknown[] } };
+    nullTreaty.state.treaties.push(null);
+    expect(() => deserialize(JSON.stringify(nullTreaty))).toThrow(SaveError);
+  });
+
+  it("пустая продажа не держит корабль из-за цены", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    ship.worldId = "w-vega";
+    ship.fromId = "w-vega";
+    ship.tollWorldId = "w-vega";
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Сначала купить",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-vega", actions: [{ good: "ore", mode: "sell", amount: 10, price: 100, keep: 0 }] },
+        { worldId: "w-harbor", actions: [{ good: "ore", mode: "load", amount: 10, price: 0, keep: 0 }] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    expect(ship.toId).toBe("w-harbor");
+  });
+
+  it("второй корабль снимает колониальный приказ, если бухта уже занята", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const first = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    const second = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-harbor")!;
+    second.worldId = "w-bread";
+    second.fromId = "w-bread";
+    second.tollWorldId = "w-bread";
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: first.id, worldId: "w-bay" });
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: second.id, worldId: "w-bay" });
+    const bay = state.worlds.find((world) => world.id === "w-bay")!;
+    for (let day = 0; day < 30 && (first.worldId !== "w-bay" || second.worldId !== "w-bay"); day += 1) {
+      if (first.status === "transit") first.distanceLeft = 1;
+      if (second.status === "transit") second.distanceLeft = 1;
+      runTicks(state, 1);
+    }
+    expect(bay.ownerId).toBe(player.id);
+    expect(second.mission).toBeNull();
+    expect(second.routeId).toBeNull();
+    expect(second.stopReason ?? "").not.toContain("топлив");
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("клик по своему кораблю запоминает его для колонии", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const ships = state.ships.filter((ship) => ship.houseId === player.id);
+    expect(fleetPickId(ships[1], player.id)).toBe(ships[1].id);
+    const rival = state.ships.find((ship) => ship.houseId !== player.id)!;
+    expect(fleetPickId(rival, player.id)).toBeNull();
   });
 });

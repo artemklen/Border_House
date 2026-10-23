@@ -16,6 +16,7 @@ import {
   explainPrice,
   colonyShip,
   explainShip,
+  fleetPickId,
   formatDay,
   governorBlurb,
   hintLines,
@@ -92,7 +93,7 @@ export function App() {
         const plan = planFrame(clockRef.current, dt, current.tick, 24);
         if (plan.steps > 0) {
           for (let index = 0; index < plan.steps; index += 1) tick(current);
-          if (plan.autosave && !storeSave(localStorage, AUTOSAVE_KEY, serialize(current))) {
+          if (plan.autosave && !storeSave(() => localStorage, AUTOSAVE_KEY, serialize(current))) {
             setMessage("Автосохранение не записалось. Партия продолжается.");
           }
           setSim({ ...current });
@@ -185,6 +186,10 @@ export function App() {
     }
     if (bestShip) {
       setSelected({ kind: "ship", id: bestShip.id });
+      const owned = current.ships.find((ship) => ship.id === bestShip.id);
+      const playerId = current.houses.find((house) => house.player)?.id ?? "";
+      const picked = owned ? fleetPickId(owned, playerId) : null;
+      if (picked) setShipId(picked);
       setTab("fleet");
       return;
     }
@@ -219,9 +224,13 @@ export function App() {
             }
           }}
           onLoad={() => {
-            const raw = localStorage.getItem(AUTOSAVE_KEY);
-            if (!raw) setMessage("Автосохранения нет.");
-            else loadRaw(raw);
+            try {
+              const raw = localStorage.getItem(AUTOSAVE_KEY);
+              if (!raw) setMessage("Автосохранения нет.");
+              else loadRaw(raw);
+            } catch {
+              setMessage("Браузер не отдал автосохранение.");
+            }
           }}
           onImport={(raw) => loadRaw(raw)}
         />
@@ -408,7 +417,7 @@ export function App() {
                   <GamePanel
                     sim={sim}
                     onSave={() => {
-                      const saved = storeSave(localStorage, AUTOSAVE_KEY, serialize(sim));
+                      const saved = storeSave(() => localStorage, AUTOSAVE_KEY, serialize(sim));
                       setMessage(saved ? "Партия записана в браузер." : "Браузер не принял запись. Партия на экране сохранена.");
                     }}
                     onExport={() => download(serialize(sim), `border-house-${sim.seed}.json`)}
