@@ -187,6 +187,7 @@ function feedWorlds(state: SimState): void {
 }
 
 function sail(state: SimState): void {
+  const paidUpkeep = new Set<string>();
   for (const ship of byId(state.ships)) {
     if (ship.status === "building") {
       ship.remainingDays -= 1;
@@ -200,11 +201,11 @@ function sail(state: SimState): void {
     if (ship.status === "transit") {
       const shipClass = SHIP_CLASSES[ship.classId];
       const step = Math.min(shipClass.speed, ship.distanceLeft);
-      const arriving = ship.distanceLeft - step <= 0;
-      if (!arriving && !payUpkeep(state, ship)) {
+      if (!payUpkeep(state, ship)) {
         ship.stopReason = "нет денег на содержание корабля";
         continue;
       }
+      paidUpkeep.add(ship.id);
       ship.distanceLeft -= step;
       ship.traveled += step;
       if (ship.distanceLeft <= 0) {
@@ -225,15 +226,15 @@ function sail(state: SimState): void {
         continue;
       }
     }
-    if (ship.worldId) handleDock(state, ship);
+    if (ship.worldId) handleDock(state, ship, paidUpkeep.has(ship.id));
   }
 }
 
-function handleDock(state: SimState, ship: Ship): void {
+function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
   const world = worldOf(state, ship.worldId);
   if (!world) return;
   if (ship.status === "blocked") ship.status = "docked";
-  if (!payUpkeep(state, ship)) {
+  if (!upkeepPaid && !payUpkeep(state, ship)) {
     block(ship, "нет денег на содержание корабля");
     return;
   }

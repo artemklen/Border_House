@@ -8,7 +8,7 @@ import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
-import { bottlenecks, colonyShip, explainShip, fleetPickId, foodPerDay, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
+import { bottlenecks, colonyShip, dependencyRows, explainShip, fleetPickId, foodPerDay, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -1275,5 +1275,81 @@ describe("замечания ревью", () => {
   it("панель мира показывает дробный расход еды колонии", () => {
     expect(foodPerDay(70, 1)).toBe(0.7);
     expect(foodPerDay(400, 1)).toBe(4);
+  });
+
+  it("неизвестный товар в маршруте не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Товар",
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 1, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    const broken = JSON.parse(serialize(state)) as { state: { routes: Array<{ stops: Array<{ actions: Array<{ good: string }> }> }> } };
+    broken.state.routes[0].stops[0].actions[0].good = "unknown";
+    expect(() => deserialize(JSON.stringify(broken))).toThrow(SaveError);
+  });
+
+  it("продовольственный рейс не забивает трюм лишним топливом", () => {
+    const state = createIndustryScenario();
+    const forge = state.worlds.find((world) => world.id === "i-forge")!;
+    const ship = state.ships.find((item) => item.classId === "freighter")!;
+    state.accounts.goodsDestroyed.food += forge.stock.food;
+    forge.stock.food = 0;
+    state.accounts.goodsCreated.fuel += 10;
+    ship.cargo.fuel = 50;
+    planAi(state);
+    const route = state.routes.find((item) => item.stops.some((stop) => stop.actions.some((action) => action.good === "food")));
+    const fuel = route?.stops[0].actions.find((action) => action.good === "fuel");
+    expect(fuel?.amount ?? 0).toBe(0);
+    expect(route?.stops[0].actions.some((action) => action.good === "food")).toBe(true);
+  });
+
+  it("последний день перехода тоже требует содержание", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ship = state.ships[0];
+    for (const world of state.worlds) world.population = 0;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Короткий",
+      shipId: ship.id,
+      stops: [
+        { worldId: "l-ore", actions: [] },
+        { worldId: "l-dock", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    const removed = house.credits;
+    state.accounts.creditsDestroyed += removed;
+    house.credits = 0;
+    ship.distanceLeft = 6;
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    expect(ship.distanceLeft).toBe(6);
+  });
+
+  it("зависимость считается только по прошлому окну", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    for (const world of state.worlds) {
+      if (world.ownerId !== player.id) continue;
+      world.lastEaten = 0;
+      world.eaten = 0;
+      world.lastImported = {};
+    }
+    const harbor = state.worlds.find((world) => world.id === "w-harbor")!;
+    harbor.lastEaten = 24;
+    harbor.imported[vega.id] = { grain: 0, food: 10, ore: 0, alloys: 0, parts: 0, fuel: 0 };
+    const line = dependencyRows(state, player).find((item) => item.startsWith("Дом Вега"));
+    expect(line).toContain("0%");
+    expect(line).toContain("0 ед. к 24");
   });
 });

@@ -89,7 +89,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
             houseId: house.id,
             name: `Еда: ${source.name}`,
             shipId: ship.id,
-            stops: foodStops(house, source, world),
+            stops: foodStops(house, ship, source, world),
           },
           because: `${house.name} везёт продовольствие «${source.name}» → «${world.name}»: запаса на ${cover} дн.`,
         });
@@ -241,16 +241,25 @@ function feedsOwnWorld(state: SimState, route: { houseId: string; stops: RouteSt
   });
 }
 
-function foodStops(house: House, source: World, dest: World): RouteStop[] {
+function foodStops(house: House, ship: Ship, source: World, dest: World): RouteStop[] {
+  const foodAmount = source.ownerId === house.id ? 40 : 36;
   const outbound = source.ownerId === house.id
-    ? { good: "food" as const, mode: "load" as const, amount: 40, price: 0, keep: 40 }
-    : { good: "food" as const, mode: "buy" as const, amount: 36, price: 48, keep: 20 };
+    ? { good: "food" as const, mode: "load" as const, amount: foodAmount, price: 0, keep: 40 }
+    : { good: "food" as const, mode: "buy" as const, amount: foodAmount, price: 48, keep: 20 };
   const inbound = dest.ownerId === house.id
     ? { good: "food" as const, mode: "unload" as const, amount: 40, price: 0, keep: 0 }
     : { good: "food" as const, mode: "sell" as const, amount: 36, price: 1, keep: 0 };
-  const fuel = { good: "fuel" as const, mode: source.ownerId === house.id ? "load" as const : "buy" as const, amount: 20, price: 30, keep: 10 };
+  const voyage = fuelForLeg(ship, source, dest) + fuelForLeg(ship, dest, source);
+  const otherCargo = sumGoods(ship.cargo) - ship.cargo.fuel;
+  const roomForFuel = SHIP_CLASSES[ship.classId].capacity - foodAmount - otherCargo;
+  const amount = Math.max(0, Math.min(20, voyage - ship.cargo.fuel, roomForFuel));
+  const actions: RouteStop["actions"] = [];
+  if (amount > 0) {
+    actions.push({ good: "fuel", mode: source.ownerId === house.id ? "load" : "buy", amount, price: 30, keep: Math.min(10, amount) });
+  }
+  actions.push(outbound);
   return [
-    { worldId: source.id, actions: [fuel, outbound] },
+    { worldId: source.id, actions },
     { worldId: dest.id, actions: [inbound] },
   ];
 }

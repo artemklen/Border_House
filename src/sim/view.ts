@@ -129,19 +129,19 @@ export function dependencyRows(state: SimState, house: House): string[] {
   const lines: string[] = [];
   let eaten = 0;
   for (const world of state.worlds) {
-    if (world.ownerId === house.id) eaten += world.lastEaten || world.eaten;
+    if (world.ownerId === house.id) eaten += world.lastEaten;
   }
   for (const other of state.houses) {
     if (other.id === house.id) continue;
     let imported = 0;
     for (const world of state.worlds) {
       if (world.ownerId !== house.id) continue;
-      imported += world.lastImported[other.id]?.food ?? world.imported[other.id]?.food ?? 0;
+      imported += world.lastImported[other.id]?.food ?? 0;
     }
     const share = eaten > 0 ? Math.round((imported / eaten) * 100) : 0;
     const tariff = state.worlds.filter((world) => world.ownerId === other.id).reduce((sum, world) => sum + world.tariffBps, 0);
     lines.push(
-      `${other.name}: отношения ${house.relation[other.id] ?? 0}. Доля их продовольствия в последнем учёте ${share}% (${imported} ед. к ${eaten} съеденным). Их средняя пошлина по мирам задаётся отдельно, сумма ставок ${tariff / 100} п.п. Оборот с ними за окно ${house.lastTradeWith[other.id] ?? house.tradeWith[other.id] ?? 0} кред. Эмбарго с нашей стороны: ${house.embargo[other.id] ? "да" : "нет"}.`,
+      `${other.name}: отношения ${house.relation[other.id] ?? 0}. Доля их продовольствия в последнем учёте ${share}% (${imported} ед. к ${eaten} съеденным). Их средняя пошлина по мирам задаётся отдельно, сумма ставок ${tariff / 100} п.п. Оборот с ними за окно ${house.lastTradeWith[other.id] ?? 0} кред. Эмбарго с нашей стороны: ${house.embargo[other.id] ? "да" : "нет"}.`,
     );
   }
   const capital = worldOf(state, house.capitalId);

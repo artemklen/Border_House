@@ -136,7 +136,10 @@ function assertPlayable(state: SimState): void {
     for (const stop of route.stops) {
       if (!stop || !worldIds.has(stop.worldId) || !Array.isArray(stop.actions)) throw new SaveError("Файл сохранения повреждён: остановка маршрута неизвестна.");
       for (const action of stop.actions) {
-        if (!action || typeof action.good !== "string" || typeof action.mode !== "string" || typeof action.amount !== "number" || typeof action.price !== "number" || typeof action.keep !== "number") {
+        if (!action || !(GOODS as readonly string[]).includes(action.good) || !["load", "unload", "buy", "sell"].includes(action.mode)) {
+          throw new SaveError("Файл сохранения повреждён: действие остановки повреждено.");
+        }
+        if (!Number.isInteger(action.amount) || action.amount <= 0 || !Number.isInteger(action.price) || action.price < 0 || !Number.isInteger(action.keep) || action.keep < 0) {
           throw new SaveError("Файл сохранения повреждён: действие остановки повреждено.");
         }
       }
