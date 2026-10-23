@@ -315,7 +315,7 @@ export function refreshFoodFuel(state: SimState, ship: Ship, world: World, route
   }
   if (route.pausedFood?.length && !here.actions.some(isFoodTake)) {
     here.actions.push(...route.pausedFood);
-    route.pausedFood = undefined;
+    delete route.pausedFood;
     ship.visitKey = "";
   }
 }

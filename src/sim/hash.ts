@@ -81,10 +81,13 @@ export function sha256(message: string): string {
 }
 
 export function canonicalJson(value: unknown): string {
+  if (value === undefined) return "null";
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
-  const entries = Object.keys(value as Record<string, unknown>)
+  const record = value as Record<string, unknown>;
+  const entries = Object.keys(record)
+    .filter((key) => record[key] !== undefined)
     .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`);
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
   return `{${entries.join(",")}}`;
 }

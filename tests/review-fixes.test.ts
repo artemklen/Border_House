@@ -5,7 +5,7 @@ import { dispatch } from "../src/sim/commands";
 import { createGame, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
 import { createExpansionScenario, createIndustryScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
 import { sumGoods } from "../src/sim/goods";
-import { audit, foodCover } from "../src/sim/mutate";
+import { audit, foodCover, hashState } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
 import { bottlenecks, colonyShip, dependencyRows, explainShip, fleetCommandShipId, fleetPickId, foodPerDay, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
@@ -1669,5 +1669,37 @@ describe("замечания ревью", () => {
       }
     }
     expect(audit(state).ok).toBe(true);
+  });
+
+  it("отпечаток партии совпадает после записи маршрута", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Хлеб",
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    expect(hashState(state)).toBe(hashState(deserialize(serialize(state))));
+  });
+
+  it("выручка маршрута объектом не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    dispatch(state, {
+      type: "createRoute",
+      houseId: state.houses.find((house) => house.player)!.id,
+      name: "Хлеб",
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    const raw = JSON.parse(serialize(state)) as { state: { routes: Array<{ revenue: unknown }> } };
+    raw.state.routes[0].revenue = {};
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
   });
 });

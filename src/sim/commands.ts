@@ -15,7 +15,7 @@ import {
   shiftRelation,
   worldOf,
 } from "./mutate";
-import type { Command, CommandResult, RouteStop, Ship, SimState, TreatyKind, World } from "./types";
+import type { Command, CommandResult, Route, RouteStop, Ship, SimState, TreatyKind, World } from "./types";
 
 export function dispatch(state: SimState, command: Command): CommandResult {
   switch (command.type) {
@@ -166,7 +166,7 @@ function createRoute(state: SimState, houseId: string, name: string, stops: Rout
     if (ship.status === "building") return fail("корабль ещё строится");
     if (ship.houseId !== houseId) return fail("чужой корабль");
   }
-  const route = {
+  const route: Route = {
     id: serial(state, "r"),
     houseId,
     name: name.trim() || "Маршрут",
@@ -178,8 +178,8 @@ function createRoute(state: SimState, houseId: string, name: string, stops: Rout
     lastRevenue: 0,
     lastCost: 0,
     lastFuelUsed: 0,
-    autoFuel: autoFuel || undefined,
   };
+  if (autoFuel) route.autoFuel = true;
   state.routes.push(route);
   note(state, houseId, `Проложен маршрут «${route.name}».`);
   if (shipId) {

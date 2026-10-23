@@ -139,6 +139,10 @@ function assertPlayable(state: SimState): void {
     if (!route || typeof route.id !== "string" || typeof route.name !== "string" || !Array.isArray(route.stops) || !houseIds.has(route.houseId)) {
       throw new SaveError("Файл сохранения повреждён: маршрут без остановок.");
     }
+    const counters = ["revenue", "cost", "fuelUsed", "lastRevenue", "lastCost", "lastFuelUsed"] as const;
+    if (counters.some((key) => typeof route[key] !== "number" || !Number.isFinite(route[key]))) {
+      throw new SaveError("Файл сохранения повреждён: учёт маршрута повреждён.");
+    }
     for (const stop of route.stops) {
       if (!stop || !worldIds.has(stop.worldId) || !Array.isArray(stop.actions)) throw new SaveError("Файл сохранения повреждён: остановка маршрута неизвестна.");
       for (const action of stop.actions) {
