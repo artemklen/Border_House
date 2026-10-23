@@ -155,6 +155,7 @@ function assertPlayable(state: SimState): void {
     if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
     normalizeSupply(ship);
     if (ship.routeId && !routeIds.has(ship.routeId)) throw new SaveError("Файл сохранения повреждён: корабль ссылается на неизвестный маршрут.");
+    assertShipNavigation(ship, state, worldIds);
   }
   for (const treaty of state.treaties) {
     if (!treaty || typeof treaty.status !== "string" || typeof treaty.kind !== "string" || typeof treaty.proposerId !== "string" || typeof treaty.targetId !== "string") {
@@ -182,6 +183,32 @@ function requireInt(value: unknown, min: number, max: number): value is number {
 
 function isMap(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isWorldRef(id: unknown, worldIds: Set<string>): boolean {
+  return id === null || (typeof id === "string" && worldIds.has(id));
+}
+
+function assertShipNavigation(ship: SimState["ships"][number], state: SimState, worldIds: Set<string>): void {
+  const broken = "Файл сохранения повреждён: навигация корабля повреждена.";
+  if (!["docked", "transit", "blocked", "building"].includes(ship.status)) throw new SaveError(broken);
+  if (!Number.isInteger(ship.stopIndex) || ship.stopIndex < 0) throw new SaveError(broken);
+  if (!isWorldRef(ship.worldId, worldIds) || !isWorldRef(ship.fromId, worldIds) || !isWorldRef(ship.toId, worldIds) || !isWorldRef(ship.tollWorldId, worldIds)) {
+    throw new SaveError(broken);
+  }
+  if (ship.status === "transit" && (typeof ship.fromId !== "string" || typeof ship.toId !== "string")) throw new SaveError(broken);
+  if (ship.status !== "transit" && typeof ship.worldId !== "string") throw new SaveError(broken);
+  if (!Number.isFinite(ship.distanceLeft) || ship.distanceLeft < 0 || !Number.isFinite(ship.legDistance) || ship.legDistance < 0 || !Number.isFinite(ship.traveled) || ship.traveled < 0) {
+    throw new SaveError(broken);
+  }
+  if (!Number.isInteger(ship.remainingDays) || ship.remainingDays < 0) throw new SaveError(broken);
+  if (ship.stopReason != null && typeof ship.stopReason !== "string") throw new SaveError(broken);
+  if (ship.mission != null) {
+    const mission = ship.mission as { type?: unknown; worldId?: unknown };
+    if (mission.type !== "colonize" || typeof mission.worldId !== "string" || !worldIds.has(mission.worldId)) throw new SaveError(broken);
+  }
+  const route = ship.routeId ? state.routes.find((item) => item.id === ship.routeId) : undefined;
+  if (route && route.stops.length > 0 && ship.stopIndex >= route.stops.length) throw new SaveError(broken);
 }
 
 function normalizeSupply(ship: SimState["ships"][number]): void {

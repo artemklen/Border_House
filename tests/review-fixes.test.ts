@@ -1461,4 +1461,42 @@ describe("замечания ревью", () => {
     ship.state.ships[0].classId = "constructor";
     expect(() => deserialize(JSON.stringify(ship))).toThrow(SaveError);
   });
+
+  it("корабль вне своего маршрута без индекса стоянки не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const raw = JSON.parse(serialize(state)) as {
+      state: {
+        ships: Array<Record<string, unknown>>;
+        worlds: Array<{ id: string }>;
+        routes: Array<Record<string, unknown>>;
+      };
+    };
+    const [home, other, away] = raw.state.worlds;
+    const ship = raw.state.ships[0];
+    raw.state.routes.push({
+      id: "r-nav",
+      houseId: ship.houseId,
+      name: "Проверка",
+      stops: [
+        { worldId: home.id, actions: [] },
+        { worldId: other.id, actions: [] },
+      ],
+      paused: false,
+      revenue: 0,
+      cost: 0,
+      fuelUsed: 0,
+      lastRevenue: 0,
+      lastCost: 0,
+      lastFuelUsed: 0,
+    });
+    ship.routeId = "r-nav";
+    ship.status = "docked";
+    ship.worldId = away.id;
+    ship.fromId = away.id;
+    delete ship.stopIndex;
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+    ship.stopIndex = 0;
+    const loaded = deserialize(JSON.stringify(raw));
+    expect(() => runTicks(loaded, 1)).not.toThrow();
+  });
 });
