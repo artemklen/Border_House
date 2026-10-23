@@ -466,11 +466,7 @@ function depart(state: SimState, ship: Ship, route: Route): void {
       return;
     }
   }
-  const planned = route.stops[ship.stopIndex];
-  const here = planned && planned.worldId === ship.worldId
-    ? ship.stopIndex
-    : route.stops.findIndex((stop) => stop.worldId === ship.worldId);
-  const nextIndex = here >= 0 ? (here + 1) % route.stops.length : Math.min(Math.max(ship.stopIndex, 0), route.stops.length - 1);
+  const nextIndex = nextStopIndex(ship, route);
   const next = route.stops[nextIndex];
   const origin = worldOf(state, ship.worldId);
   const dest = worldOf(state, next.worldId);
@@ -523,6 +519,15 @@ function depart(state: SimState, ship: Ship, route: Route): void {
   ship.worldId = null;
   ship.stopIndex = nextIndex;
   ship.stopReason = null;
+}
+
+export function nextStopIndex(ship: Ship, route: Route): number {
+  if (route.stops.length === 0) return 0;
+  const planned = route.stops[ship.stopIndex];
+  const here = planned && planned.worldId === ship.worldId
+    ? ship.stopIndex
+    : route.stops.findIndex((stop) => stop.worldId === ship.worldId);
+  return here >= 0 ? (here + 1) % route.stops.length : Math.min(Math.max(ship.stopIndex, 0), route.stops.length - 1);
 }
 
 export function territoriesOnRoute(state: SimState, fromId: string, toId: string, travelerId: string): World[] {

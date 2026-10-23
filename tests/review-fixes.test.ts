@@ -8,7 +8,7 @@ import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
-import { bottlenecks, colonyShip, fleetPickId, keptOtherHouseId, keptShipId, keptWorldId } from "../src/sim/view";
+import { bottlenecks, colonyShip, explainShip, fleetPickId, keptOtherHouseId, keptShipId, keptWorldId } from "../src/sim/view";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -974,5 +974,65 @@ describe("замечания ревью", () => {
     expect(result.ok).toBe(false);
     expect(state.routes).toHaveLength(routes);
     expect(state.journal).toHaveLength(notes);
+  });
+
+  it("казна без числа не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const broken = JSON.parse(serialize(state)) as { state: { houses: Array<{ credits?: number }> } };
+    delete broken.state.houses[0].credits;
+    expect(() => deserialize(JSON.stringify(broken))).toThrow(SaveError);
+  });
+
+  it("внутренний подвоз не ставится на паузу из-за отсутствия выручки", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    const lyra = state.houses.find((house) => house.profile === "expansionist")!;
+    const ship = state.ships.find((item) => item.houseId === lyra.id)!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: lyra.id,
+      name: "Еда домой",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-vega", actions: [{ good: "food", mode: "buy", amount: 20, price: 40, keep: 0 }] },
+        { worldId: "w-lyra", actions: [{ good: "food", mode: "unload", amount: 20, price: 0, keep: 0 }] },
+      ],
+    });
+    const route = state.routes.find((item) => item.id === ship.routeId)!;
+    route.lastCost = 288;
+    route.lastRevenue = 0;
+    planAi(state);
+    expect(route.paused).toBe(false);
+  });
+
+  it("подсказка корабля называет фактический следующий перегон", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Мимо",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-harbor", actions: [] },
+        { worldId: "w-lyra", actions: [] },
+      ],
+    });
+    const text = explainShip(state, ship.id);
+    expect(text).toContain("не входит в чужие пределы");
+    expect(text).not.toContain("Застава");
+    dispatch(state, {
+      type: "updateRoute",
+      routeId: ship.routeId!,
+      name: "Повтор",
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-vega", actions: [] },
+      ],
+    });
+    ship.stopIndex = 2;
+    expect(explainShip(state, ship.id)).toContain("Застава");
   });
 });

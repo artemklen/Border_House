@@ -75,6 +75,9 @@ function assertPlayable(state: SimState): void {
   const houseIds = new Set<string>();
   for (const house of state.houses) {
     if (!house || typeof house.id !== "string" || houseIds.has(house.id)) throw new SaveError("Файл сохранения повреждён: дом без идентификатора.");
+    if (typeof house.credits !== "number" || !Number.isInteger(house.credits) || house.credits < 0) {
+      throw new SaveError("Файл сохранения повреждён: казна дома нечисловая.");
+    }
     if (!house.flow || typeof house.flow.wages !== "number" || !house.lastFlow || typeof house.lastFlow.wages !== "number") {
       throw new SaveError("Файл сохранения повреждён: у дома нет кассы.");
     }
@@ -96,7 +99,7 @@ function assertPlayable(state: SimState): void {
     requireGoods(world.lastDemand, "прошлый спрос");
     requireGoods(world.lastProduced, "прошлый выпуск");
     if (!isMap(world.lastImported)) throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
-    if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.popWallet !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number") {
+    if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number" || typeof world.popWallet !== "number" || !Number.isInteger(world.popWallet) || world.popWallet < 0) {
       throw new SaveError("Файл сохранения повреждён: население или кошелёк мира нечисловые.");
     }
     if (!world.imported || typeof world.imported !== "object") throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");

@@ -169,6 +169,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
 
   for (const route of state.routes) {
     if (route.houseId !== house.id || route.paused) continue;
+    if (feedsOwnWorld(state, route)) continue;
     if (route.lastCost > route.lastRevenue + 40 && route.lastRevenue + route.lastCost > 0) {
       plans.push({
         command: { type: "pauseRoute", routeId: route.id, paused: true },
@@ -219,6 +220,15 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     }
   }
   return plans;
+}
+
+function feedsOwnWorld(state: SimState, route: { houseId: string; stops: RouteStop[] }): boolean {
+  const sells = route.stops.some((stop) => stop.actions.some((action) => action.mode === "sell"));
+  if (sells) return false;
+  return route.stops.some((stop) => {
+    const world = worldOf(state, stop.worldId);
+    return world?.ownerId === route.houseId && stop.actions.some((action) => action.mode === "unload");
+  });
 }
 
 function foodStops(house: House, source: World, dest: World): RouteStop[] {

@@ -1,7 +1,7 @@
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, GOOD_NAME, type GoodId } from "./goods";
 import { foodCover, foodNeed, houseOf, personOf, routeOf, worldOf } from "./mutate";
-import { territoriesOnRoute } from "./simulate";
+import { nextStopIndex, territoriesOnRoute } from "./simulate";
 import type { House, Ship, SimState, World } from "./types";
 
 export function formatDay(state: SimState): string {
@@ -54,8 +54,7 @@ export function explainShip(state: SimState, shipId: string): string {
   const where = ship.status === "transit" ? `в пути к ${worldOf(state, ship.toId)?.name ?? "цели"}, осталось ${ship.distanceLeft} ед.` : `у мира ${worldOf(state, ship.worldId)?.name ?? "—"}`;
   let nextCost = "";
   if (ship.worldId && route && !route.paused) {
-    const index = route.stops.findIndex((stop) => stop.worldId === ship.worldId);
-    const next = route.stops[(Math.max(index, 0) + 1) % route.stops.length];
+    const next = route.stops[nextStopIndex(ship, route)];
     const from = worldOf(state, ship.worldId);
     const to = worldOf(state, next?.worldId ?? null);
     if (from && to && from.id !== to.id) {
