@@ -30,8 +30,8 @@ export function createGame(options: NewGameOptions): SimState {
   if (scenario === "base") return createBase(options.seed);
   const worlds = options.worlds ?? 16;
   const houses = options.houses ?? 4;
-  if (worlds < 12 || worlds > 20) throw new Error("Число миров должно быть от 12 до 20.");
-  if (houses < 3 || houses > 4) throw new Error("Число домов должно быть от 3 до 4.");
+  if (!Number.isInteger(worlds) || worlds < 12 || worlds > 20) throw new Error("Число миров должно быть целым от 12 до 20.");
+  if (!Number.isInteger(houses) || houses < 3 || houses > 4) throw new Error("Число домов должно быть целым от 3 до 4.");
   return createGenerated(options.seed, worlds, houses);
 }
 

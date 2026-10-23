@@ -1080,4 +1080,20 @@ describe("замечания ревью", () => {
     const routes = state.routes.filter((route) => route.houseId === vega.id);
     expect(routes.some((route) => route.stops.some((stop) => stop.worldId === "w-bread"))).toBe(false);
   });
+
+  it("отрицательный радиус или пустая запись журнала не подменяют партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const radius = JSON.parse(serialize(state)) as { state: { rules: { territoryRadius: number } } };
+    radius.state.rules.territoryRadius = -1;
+    expect(() => deserialize(JSON.stringify(radius))).toThrow(SaveError);
+    const journal = JSON.parse(serialize(state)) as { state: { journal: unknown[] } };
+    journal.state.journal = [null];
+    expect(() => deserialize(JSON.stringify(journal))).toThrow(SaveError);
+  });
+
+  it("дробный размер сектора не создаёт миры", () => {
+    expect(() => createGame({ seed: 3, scenario: "generated", worlds: 12.5, houses: 3 })).toThrow(/целым/);
+    expect(() => createGame({ seed: 3, scenario: "generated", worlds: 12, houses: 3.5 })).toThrow(/целым/);
+    expect(createGame({ seed: 3, scenario: "generated", worlds: 12, houses: 3 }).worlds).toHaveLength(12);
+  });
 });

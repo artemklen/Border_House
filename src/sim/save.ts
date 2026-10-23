@@ -61,9 +61,23 @@ function assertPlayable(state: SimState): void {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
   }
   if (!state.rules) throw new SaveError("Файл сохранения повреждён: нет правил.");
-  for (const key of ["ticksPerYear", "foodPer100", "wage", "taxPer100", "territoryRadius", "colonizeFood", "colonizeParts", "colonizeCost", "colonizePop", "aiInterval", "window", "stockCapacity", "deathStartAge", "deathCertainAge"] as const) {
-    if (typeof state.rules[key] !== "number") throw new SaveError("Файл сохранения повреждён: нет правил.");
-  }
+  const rules = state.rules;
+  const ruleOk = requireInt(rules.ticksPerYear, 1, 1000)
+    && requireInt(rules.foodPer100, 0, 1000)
+    && requireInt(rules.wage, 0, 100000)
+    && requireInt(rules.taxPer100, 0, 100000)
+    && requireInt(rules.territoryRadius, 0, 100000)
+    && requireInt(rules.colonizeFood, 0, 100000)
+    && requireInt(rules.colonizeParts, 0, 100000)
+    && requireInt(rules.colonizeCost, 0, 1_000_000_000)
+    && requireInt(rules.colonizePop, 0, 100000)
+    && requireInt(rules.aiInterval, 0, 10000)
+    && requireInt(rules.window, 1, 10000)
+    && requireInt(rules.stockCapacity, 1, 10_000_000)
+    && requireInt(rules.deathStartAge, 0, 1000)
+    && requireInt(rules.deathCertainAge, 0, 1000)
+    && rules.deathCertainAge >= rules.deathStartAge;
+  if (!ruleOk) throw new SaveError("Файл сохранения повреждён: нет правил.");
   requireGoods(state.rules.basePrice, "базовые цены");
   if (!state.accounts || typeof state.accounts.creditsCreated !== "number" || typeof state.accounts.creditsDestroyed !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет счетов.");
@@ -141,11 +155,20 @@ function assertPlayable(state: SimState): void {
       throw new SaveError("Файл сохранения повреждён: договор повреждён.");
     }
   }
+  for (const entry of [...state.journal, ...state.aiLog]) {
+    if (!entry || typeof entry.tick !== "number" || typeof entry.text !== "string") {
+      throw new SaveError("Файл сохранения повреждён: запись журнала повреждена.");
+    }
+  }
   for (const person of state.people) {
     if (!person || typeof person.id !== "string" || !houseIds.has(person.houseId) || !Array.isArray(person.traits) || typeof person.ageDays !== "number") {
       throw new SaveError("Файл сохранения повреждён: человек без дома.");
     }
   }
+}
+
+function requireInt(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 }
 
 function isMap(value: unknown): value is Record<string, unknown> {
