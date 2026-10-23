@@ -281,7 +281,10 @@ function reachableFuelWorld(state: SimState, ship: Ship, here: World): World | u
 }
 
 function stockSource(state: SimState, house: House, dest: World, good: GoodId): World | undefined {
-  return byId(state.worlds).find((world) => world.id !== dest.id && world.stock[good] > 16 && (world.ownerId === house.id || world.ownerId));
+  return byId(state.worlds).find((world) => {
+    if (world.id === dest.id || world.stock[good] <= 16 || !world.ownerId) return false;
+    return world.ownerId === house.id || houseOf(state, world.ownerId)?.embargo[house.id] !== true;
+  });
 }
 
 function linked(state: SimState, houseId: string, a: string, b: string, good: GoodId): boolean {

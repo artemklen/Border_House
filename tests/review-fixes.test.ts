@@ -1035,4 +1035,49 @@ describe("замечания ревью", () => {
     ship.stopIndex = 2;
     expect(explainShip(state, ship.id)).toContain("Застава");
   });
+
+  it("сохранение без миров не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const broken = JSON.parse(serialize(state)) as { state: { worlds: unknown[] } };
+    broken.state.worlds = [];
+    expect(() => deserialize(JSON.stringify(broken))).toThrow(SaveError);
+  });
+
+  it("неудачное основание на месте не оставляет колониальный приказ", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Торговля",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    const routeId = ship.routeId;
+    ship.worldId = "w-beacon";
+    ship.fromId = "w-beacon";
+    ship.tollWorldId = "w-beacon";
+    ship.cargo.food = 0;
+    ship.cargo.parts = 0;
+    const result = dispatch(state, { type: "colonize", houseId: player.id, shipId: ship.id, worldId: "w-beacon" });
+    expect(result.ok).toBe(false);
+    expect(ship.mission).toBeNull();
+    expect(ship.routeId).toBe(routeId);
+  });
+
+  it("ИИ не берёт сырьё из мира под эмбарго", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const mill = state.worlds.find((world) => world.id === "w-vega")!.buildings.find((building) => building.kind === "mill")!;
+    mill.stopReason = "не хватает: зерно";
+    dispatch(state, { type: "setEmbargo", houseId: player.id, otherId: vega.id, embargo: true });
+    planAi(state);
+    const routes = state.routes.filter((route) => route.houseId === vega.id);
+    expect(routes.some((route) => route.stops.some((stop) => stop.worldId === "w-bread"))).toBe(false);
+  });
 });

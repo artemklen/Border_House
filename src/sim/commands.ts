@@ -351,6 +351,7 @@ function colonize(state: SimState, houseId: string, shipId: string, worldId: str
   if (capacity < kit) {
     return fail(`трюм ${capacity} ед. не вмещает набор: ${state.rules.colonizeFood} продовольствия и ${state.rules.colonizeParts} комплектующих`);
   }
+  if (ship.worldId === target.id && ship.status !== "transit") return foundColony(state, ship, target);
   ship.mission = { type: "colonize", worldId: target.id };
   note(
     state,
@@ -358,7 +359,6 @@ function colonize(state: SimState, houseId: string, shipId: string, worldId: str
     `Колонизация «${target.name}»: нужны ${state.rules.colonizeFood} продовольствия, ${state.rules.colonizeParts} комплектующих и ${state.rules.colonizeCost} кредитов по прибытии. Мир не начнёт приносить доход сам.`,
   );
   if (ship.status === "transit") return ok("текущий перегон сохранится, колониальный маршрут начнётся по прибытии");
-  if (ship.worldId === target.id) return foundColony(state, ship, target);
   const prepared = syncColonyRoute(state, ship);
   if (!prepared.ok) return prepared;
   return ok("корабль везёт колониальный набор");

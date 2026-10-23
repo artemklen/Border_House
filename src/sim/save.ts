@@ -86,6 +86,7 @@ function assertPlayable(state: SimState): void {
     }
     houseIds.add(house.id);
   }
+  if (state.worlds.length === 0) throw new SaveError("Файл сохранения повреждён: нет миров.");
   const worldIds = new Set<string>();
   for (const world of state.worlds) {
     if (!world || typeof world.id !== "string" || !world.stock || !Array.isArray(world.buildings) || worldIds.has(world.id)) {
