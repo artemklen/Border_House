@@ -130,7 +130,7 @@ function assertPlayable(state: SimState): void {
   }
   const routeIds = new Set<string>();
   for (const route of state.routes) {
-    if (!route || typeof route.id !== "string" || !Array.isArray(route.stops) || !houseIds.has(route.houseId)) {
+    if (!route || typeof route.id !== "string" || typeof route.name !== "string" || !Array.isArray(route.stops) || !houseIds.has(route.houseId)) {
       throw new SaveError("Файл сохранения повреждён: маршрут без остановок.");
     }
     for (const stop of route.stops) {

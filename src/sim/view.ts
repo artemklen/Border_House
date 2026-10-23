@@ -4,6 +4,10 @@ import { foodCover, foodNeed, houseOf, personOf, routeOf, worldOf } from "./muta
 import { nextStopIndex, territoriesOnRoute } from "./simulate";
 import type { House, Ship, SimState, World } from "./types";
 
+export function foodPerDay(population: number, foodPer100: number): number {
+  return (population * foodPer100) / 100;
+}
+
 export function formatDay(state: SimState): string {
   const year = Math.floor(state.tick / state.rules.ticksPerYear) + 1;
   const day = (state.tick % state.rules.ticksPerYear) + 1;

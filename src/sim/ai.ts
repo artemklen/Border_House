@@ -133,12 +133,18 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
   if (dry?.worldId && !alreadyRefueling && !reserved.has(dry.id)) {
     const here = worldOf(state, dry.worldId);
     const reachable = here ? reachableFuelWorld(state, dry, here) : undefined;
-    if (here && reachable) {
+    const reserve = 8;
+    const room = here ? SHIP_CLASSES[dry.classId].capacity - sumGoods(dry.cargo) : 0;
+    const portOwner = here?.ownerId ? houseOf(state, here.ownerId) : undefined;
+    const localOpen = Boolean(portOwner) && (here?.ownerId === house.id || portOwner?.embargo[house.id] !== true);
+    const gained = here && localOpen ? Math.max(0, Math.min(24, here.stock.fuel - reserve, room)) : 0;
+    const elsewhere = here
+      ? byId(state.worlds).find((world) => world.id !== here.id && (world.ownerId === house.id || (world.ownerId !== null && houseOf(state, world.ownerId)?.embargo[house.id] !== true)))
+      : undefined;
+    const destination = reachable ?? (gained > 0 ? elsewhere : undefined);
+    if (here && destination) {
       reserved.add(dry.id);
-      const reserve = 8;
-      const room = SHIP_CLASSES[dry.classId].capacity - sumGoods(dry.cargo);
-      const gained = Math.max(0, Math.min(24, here.stock.fuel - reserve, room));
-      const takeHere = gained > 0 && Boolean(here.ownerId);
+      const takeHere = gained > 0;
       plans.push({
         command: {
           type: "createRoute",
@@ -155,14 +161,18 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
                 : [],
             },
             {
-              worldId: reachable.id,
-              actions: [reachable.ownerId === house.id
-                ? { good: "fuel", mode: "load", amount: 40, price: 0, keep: 20 }
-                : { good: "fuel", mode: "buy", amount: 30, price: 40, keep: 10 }],
+              worldId: destination.id,
+              actions: reachable
+                ? [reachable.ownerId === house.id
+                  ? { good: "fuel", mode: "load", amount: 40, price: 0, keep: 20 }
+                  : { good: "fuel", mode: "buy", amount: 30, price: 40, keep: 10 }]
+                : [],
             },
           ],
         },
-        because: `${house.name} снимает ${dry.name} с рейса: нет топлива, ближайший достижимый запас на «${reachable.name}».`,
+        because: reachable
+          ? `${house.name} снимает ${dry.name} с рейса: нет топлива, ближайший достижимый запас на «${reachable.name}».`
+          : `${house.name} заправляет ${dry.name} на «${here.name}»: местного топлива хватает, чтобы сняться с мели.`,
       });
     }
   }
@@ -276,7 +286,10 @@ function reachableFuelWorld(state: SimState, ship: Ship, here: World): World | u
   const gained = here.ownerId && here.stock.fuel > reserve ? Math.max(0, Math.min(24, here.stock.fuel - reserve, room)) : 0;
   const aboard = ship.cargo.fuel + gained;
   return byId(state.worlds)
-    .filter((world) => world.id !== here.id && world.stock.fuel > 30 && fuelForLeg(ship, here, world) <= aboard)
+    .filter((world) => {
+      if (world.id === here.id || world.stock.fuel <= 30 || fuelForLeg(ship, here, world) > aboard) return false;
+      return !world.ownerId || world.ownerId === ship.houseId || houseOf(state, world.ownerId)?.embargo[ship.houseId] !== true;
+    })
     .sort((a, b) => distance(here, a) - distance(here, b))[0];
 }
 

@@ -3,12 +3,12 @@ import { planAi } from "../src/sim/ai";
 import { createClock, planFrame } from "../src/sim/clock";
 import { dispatch } from "../src/sim/commands";
 import { createGame, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
-import { createExpansionScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
+import { createExpansionScenario, createIndustryScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
 import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
-import { bottlenecks, colonyShip, explainShip, fleetPickId, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
+import { bottlenecks, colonyShip, explainShip, fleetPickId, foodPerDay, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -1218,5 +1218,62 @@ describe("замечания ревью", () => {
     expect(() => createGame({ seed: 3, scenario: "generated", worlds: 12.5, houses: 3 })).toThrow(/целым/);
     expect(() => createGame({ seed: 3, scenario: "generated", worlds: 12, houses: 3.5 })).toThrow(/целым/);
     expect(createGame({ seed: 3, scenario: "generated", worlds: 12, houses: 3 }).worlds).toHaveLength(12);
+  });
+
+  it("маршрут без имени не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Имя",
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    const broken = JSON.parse(serialize(state)) as { state: { routes: Array<{ name?: string }> } };
+    delete broken.state.routes[0].name;
+    expect(() => deserialize(JSON.stringify(broken))).toThrow(SaveError);
+  });
+
+  it("ИИ заправляется на месте, если дальняя колонка бедна", () => {
+    const state = createIndustryScenario();
+    const ai = state.houses.find((house) => house.profile === "industrial")!;
+    const ship = state.ships.find((item) => item.houseId === ai.id)!;
+    const removed = ship.cargo.fuel - 1;
+    ship.cargo.fuel = 1;
+    state.accounts.goodsDestroyed.fuel += removed;
+    ship.stopReason = "нет топлива на следующий перегон";
+    planAi(state);
+    const route = state.routes.find((item) => item.name.startsWith("Заправка"));
+    expect(route?.stops[0].worldId).toBe("i-mine");
+    expect(route?.stops[0].actions.some((action) => action.good === "fuel" && action.mode === "load")).toBe(true);
+  });
+
+  it("заправка не выбирает порт под эмбарго", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const skiff = state.ships.find((ship) => ship.houseId === vega.id && ship.classId === "skiff")!;
+    skiff.worldId = "w-gate";
+    skiff.fromId = "w-gate";
+    skiff.status = "docked";
+    skiff.stopReason = "нет топлива на следующий перегон";
+    const harbor = state.worlds.find((world) => world.id === "w-harbor")!;
+    const orion = state.worlds.find((world) => world.id === "w-orion")!;
+    harbor.stock.fuel += 80;
+    orion.stock.fuel += 80;
+    state.accounts.goodsCreated.fuel += 160;
+    dispatch(state, { type: "setEmbargo", houseId: player.id, otherId: vega.id, embargo: true });
+    planAi(state);
+    const route = state.routes.find((item) => item.houseId === vega.id && item.name.startsWith("Заправка"));
+    expect(route?.stops.some((stop) => stop.worldId === "w-harbor")).toBe(false);
+    expect(route?.stops.some((stop) => stop.worldId === "w-orion")).toBe(true);
+  });
+
+  it("панель мира показывает дробный расход еды колонии", () => {
+    expect(foodPerDay(70, 1)).toBe(0.7);
+    expect(foodPerDay(400, 1)).toBe(4);
   });
 });

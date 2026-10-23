@@ -5,7 +5,7 @@ import { RECIPES, SHIP_CLASSES } from "../sim/config";
 import { createGame } from "../sim/create";
 import { createExpansionScenario, createGrainScenario, createSuccessionScenario } from "../sim/diagnostics";
 import { GOODS, GOOD_NAME, type GoodId } from "../sim/goods";
-import { foodCover, foodNeed, houseOf, worldOf } from "../sim/mutate";
+import { foodCover, houseOf, worldOf } from "../sim/mutate";
 import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
 import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
@@ -17,6 +17,7 @@ import {
   colonyShip,
   explainShip,
   fleetPickId,
+  foodPerDay,
   formatDay,
   governorBlurb,
   hintLines,
@@ -492,7 +493,7 @@ function WorldPanel(props: {
   onColonize: () => void;
 }) {
   const world = worldOf(props.sim, props.worldId) ?? props.sim.worlds[0];
-  const need = foodNeed(world.population, props.sim.rules.foodPer100);
+  const need = foodPerDay(world.population, props.sim.rules.foodPer100);
   return (
     <>
       <div className="row">
