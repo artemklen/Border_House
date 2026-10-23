@@ -10,6 +10,27 @@ export function formatDay(state: SimState): string {
   return `год ${year}, день ${day}`;
 }
 
+export function pickMapTarget(state: SimState, point: { x: number; y: number }, zoom: number): { kind: "ship" | "world"; id: string } | null {
+  const shipRadius = 9 / zoom;
+  const transitRadius = 16 / zoom;
+  const worldRadius = 12 / zoom;
+  let bestShip: { id: string; distance: number } | null = null;
+  for (const ship of state.ships) {
+    if (ship.status === "building") continue;
+    const position = shipPoint(state, ship);
+    const distance = Math.hypot(position.x - point.x, position.y - point.y);
+    const limit = ship.status === "transit" ? transitRadius : shipRadius;
+    if (distance < limit && (!bestShip || distance < bestShip.distance)) bestShip = { id: ship.id, distance };
+  }
+  if (bestShip) return { kind: "ship", id: bestShip.id };
+  let bestWorld: { id: string; distance: number } | null = null;
+  for (const world of state.worlds) {
+    const distance = Math.hypot(world.x - point.x, world.y - point.y);
+    if (distance < worldRadius && (!bestWorld || distance < bestWorld.distance)) bestWorld = { id: world.id, distance };
+  }
+  return bestWorld ? { kind: "world", id: bestWorld.id } : null;
+}
+
 export function shipPoint(state: SimState, ship: Ship): { x: number; y: number } {
   if (ship.status === "transit" && ship.fromId && ship.toId && ship.legDistance > 0) {
     const from = worldOf(state, ship.fromId);

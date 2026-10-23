@@ -100,6 +100,7 @@ function assertPlayable(state: SimState): void {
     }
     houseIds.add(house.id);
   }
+  if (!state.houses.some((house) => house.player === true)) throw new SaveError("Файл сохранения повреждён: нет дома игрока.");
   if (state.worlds.length === 0) throw new SaveError("Файл сохранения повреждён: нет миров.");
   const worldIds = new Set<string>();
   for (const world of state.worlds) {
@@ -114,6 +115,9 @@ function assertPlayable(state: SimState): void {
     requireGoods(world.lastDemand, "прошлый спрос");
     requireGoods(world.lastProduced, "прошлый выпуск");
     if (!isMap(world.lastImported)) throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
+    if (typeof world.x !== "number" || typeof world.y !== "number" || !Number.isFinite(world.x) || !Number.isFinite(world.y)) {
+      throw new SaveError("Файл сохранения повреждён: у мира нет координат.");
+    }
     if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number" || typeof world.popWallet !== "number" || !Number.isInteger(world.popWallet) || world.popWallet < 0) {
       throw new SaveError("Файл сохранения повреждён: население или кошелёк мира нечисловые.");
     }

@@ -8,7 +8,7 @@ import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
-import { bottlenecks, colonyShip, explainShip, fleetPickId, keptOtherHouseId, keptShipId, keptWorldId } from "../src/sim/view";
+import { bottlenecks, colonyShip, explainShip, fleetPickId, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -1079,6 +1079,129 @@ describe("замечания ревью", () => {
     planAi(state);
     const routes = state.routes.filter((route) => route.houseId === vega.id);
     expect(routes.some((route) => route.stops.some((stop) => stop.worldId === "w-bread"))).toBe(false);
+  });
+
+  it("мир без координаты или партия без игрока не подменяют игру", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const noX = JSON.parse(serialize(state)) as { state: { worlds: Array<{ x?: number }> } };
+    delete noX.state.worlds[0].x;
+    expect(() => deserialize(JSON.stringify(noX))).toThrow(SaveError);
+    const noPlayer = JSON.parse(serialize(state)) as { state: { houses: Array<{ player: boolean }> } };
+    for (const house of noPlayer.state.houses) house.player = false;
+    expect(() => deserialize(JSON.stringify(noPlayer))).toThrow(SaveError);
+  });
+
+  it("стоящий корабль после замены маршрута не пропускает первую остановку", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Длинный",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+        { worldId: "w-ore", actions: [] },
+      ],
+    });
+    ship.stopIndex = 2;
+    dispatch(state, {
+      type: "updateRoute",
+      routeId: ship.routeId!,
+      name: "Новый",
+      stops: [
+        { worldId: "w-fuel", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+        { worldId: "w-ore", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.toId).toBe("w-fuel");
+  });
+
+  it("колония в чужом порту покупает набор, а не грузит со склада", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "К Веге",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-vega", actions: [] },
+      ],
+    });
+    for (let day = 0; day < 6 && ship.status !== "transit"; day += 1) runTicks(state, 1);
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: ship.id, worldId: "w-bay" });
+    ship.distanceLeft = 1;
+    runTicks(state, 1);
+    const colony = state.routes.find((route) => route.id === ship.routeId)!;
+    expect(colony.stops[0].worldId).toBe("w-vega");
+    expect(colony.stops[0].actions.some((action) => action.mode === "load" || action.mode === "unload")).toBe(false);
+    expect(colony.stops[0].actions.some((action) => action.mode === "buy")).toBe(true);
+  });
+
+  it("кольцо из одного и того же мира не запирает корабль", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ship = state.ships[0];
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Кольцо",
+      shipId: ship.id,
+      stops: [
+        { worldId: "l-ore", actions: [] },
+        { worldId: "l-dock", actions: [] },
+        { worldId: "l-ore", actions: [] },
+      ],
+    });
+    ship.stopIndex = 2;
+    runTicks(state, 2);
+    expect(ship.status).toBe("transit");
+    expect(ship.toId).toBe("l-dock");
+  });
+
+  it("корабль в пути не плывёт без оплаты содержания", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ship = state.ships[0];
+    const removed = house.credits - 5;
+    house.credits = 5;
+    state.accounts.creditsDestroyed += removed;
+    for (const world of state.worlds) world.population = 0;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Дальний",
+      shipId: ship.id,
+      stops: [
+        { worldId: "l-ore", actions: [] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    const left = ship.distanceLeft;
+    runTicks(state, 3);
+    expect(ship.distanceLeft).toBe(left);
+    expect(ship.stopReason).toContain("содержание");
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("клик по краю занятого мира выбирает мир, а не корабль", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const bread = state.worlds.find((world) => world.id === "w-bread")!;
+    const edge = pickMapTarget(state, { x: bread.x + 10, y: bread.y }, 1);
+    const core = pickMapTarget(state, { x: bread.x + 4, y: bread.y }, 1);
+    expect(edge).toEqual({ kind: "world", id: "w-bread" });
+    expect(core?.kind).toBe("ship");
   });
 
   it("отрицательный радиус или пустая запись журнала не подменяют партию", () => {

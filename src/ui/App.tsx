@@ -23,6 +23,7 @@ import {
   keptOtherHouseId,
   keptShipId,
   keptWorldId,
+  pickMapTarget,
   worldOwnerName,
 } from "../sim/view";
 import { drawMap, unproject, type Camera } from "./drawMap";
@@ -178,30 +179,19 @@ export function App() {
     const canvas = canvasRef.current;
     if (!current || !canvas) return;
     const point = unproject(cameraRef.current, canvas.clientWidth, canvas.clientHeight, x, y);
-    let bestShip: { id: string; distance: number } | null = null;
-    for (const ship of current.ships) {
-      const position = shipPositionOf(current, ship);
-      const distance = Math.hypot(position.x - point.x, position.y - point.y);
-      if (distance < 18 / cameraRef.current.zoom && (!bestShip || distance < bestShip.distance)) bestShip = { id: ship.id, distance };
-    }
-    if (bestShip) {
-      setSelected({ kind: "ship", id: bestShip.id });
-      const owned = current.ships.find((ship) => ship.id === bestShip.id);
+    const hit = pickMapTarget(current, point, cameraRef.current.zoom);
+    if (!hit) return;
+    if (hit.kind === "ship") {
+      setSelected({ kind: "ship", id: hit.id });
+      const owned = current.ships.find((ship) => ship.id === hit.id);
       const playerId = current.houses.find((house) => house.player)?.id ?? "";
       const picked = owned ? fleetPickId(owned, playerId) : null;
       if (picked) setShipId(picked);
       setTab("fleet");
       return;
     }
-    let bestWorld: { id: string; distance: number } | null = null;
-    for (const world of current.worlds) {
-      const distance = Math.hypot(world.x - point.x, world.y - point.y);
-      if (distance < 22 / cameraRef.current.zoom && (!bestWorld || distance < bestWorld.distance)) bestWorld = { id: world.id, distance };
-    }
-    if (bestWorld) {
-      setSelected({ kind: "world", id: bestWorld.id });
-      setTab("world");
-    }
+    setSelected({ kind: "world", id: hit.id });
+    setTab("world");
   }
 
   return (
@@ -452,19 +442,6 @@ export function App() {
       ) : null}
     </div>
   );
-}
-
-function shipPositionOf(state: SimState, ship: SimState["ships"][number]): { x: number; y: number } {
-  if (ship.status === "transit" && ship.fromId && ship.toId && ship.legDistance > 0) {
-    const from = worldOf(state, ship.fromId);
-    const to = worldOf(state, ship.toId);
-    if (from && to) {
-      const progress = 1 - ship.distanceLeft / ship.legDistance;
-      return { x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress };
-    }
-  }
-  const world = worldOf(state, ship.worldId);
-  return { x: world?.x ?? 0, y: world?.y ?? 0 };
 }
 
 function Menu(props: {

@@ -201,7 +201,10 @@ function sail(state: SimState): void {
       const shipClass = SHIP_CLASSES[ship.classId];
       const step = Math.min(shipClass.speed, ship.distanceLeft);
       const arriving = ship.distanceLeft - step <= 0;
-      if (!arriving) payUpkeep(state, ship);
+      if (!arriving && !payUpkeep(state, ship)) {
+        ship.stopReason = "нет денег на содержание корабля";
+        continue;
+      }
       ship.distanceLeft -= step;
       ship.traveled += step;
       if (ship.distanceLeft <= 0) {
@@ -472,7 +475,8 @@ function depart(state: SimState, ship: Ship, route: Route): void {
   const dest = worldOf(state, next.worldId);
   if (!origin || !dest) return;
   if (dest.id === origin.id) {
-    ship.stopReason = "следующая остановка совпадает с текущей";
+    ship.stopIndex = nextIndex;
+    ship.stopReason = null;
     return;
   }
   if (accessDenied(state, ship.houseId, dest)) {

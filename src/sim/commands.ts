@@ -201,6 +201,10 @@ function updateRoute(state: SimState, routeId: string, name: string, stops: Rout
     ship.visitKey = "";
     ship.visitMoved = [];
     if (ship.status === "transit") ship.stopIndex = 0;
+    else if (ship.worldId) {
+      const index = route.stops.findIndex((stop) => stop.worldId === ship.worldId);
+      ship.stopIndex = index >= 0 ? index : 0;
+    }
   }
   note(
     state,
@@ -420,15 +424,19 @@ function colonyLoadActions(state: SimState, ship: Ship): RouteStop["actions"] {
     food: rules.colonizeFood,
     fuel: fuelTarget,
   };
+  const here = worldOf(state, ship.worldId);
+  const own = !here?.ownerId || here.ownerId === ship.houseId;
+  const takeMode = own ? "load" : "buy";
+  const dropMode = own ? "unload" : "sell";
   const actions: RouteStop["actions"] = [];
   for (const good of GOODS) {
     const needed = keep[good] ?? 0;
     const have = ship.cargo[good];
-    if (have > needed) actions.push({ good, mode: "unload", amount: have - needed, price: 0, keep: needed });
+    if (have > needed) actions.push({ good, mode: dropMode, amount: have - needed, price: own ? 0 : 1, keep: needed });
   }
   for (const good of ["parts", "food", "fuel"] as const) {
     const needed = keep[good] ?? 0;
-    if (ship.cargo[good] < needed) actions.push({ good, mode: "load", amount: needed - ship.cargo[good], price: 0, keep: 0 });
+    if (ship.cargo[good] < needed) actions.push({ good, mode: takeMode, amount: needed - ship.cargo[good], price: own ? 0 : 80, keep: 0 });
   }
   return actions;
 }
