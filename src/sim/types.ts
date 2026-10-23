@@ -146,6 +146,9 @@ export interface Route {
   lastRevenue: number;
   lastCost: number;
   lastFuelUsed: number;
+  /** Маршрут ИИ сам добирает топливо на круг и не отдаёт это место под еду. */
+  autoFuel?: boolean;
+  pausedFood?: RouteStop["actions"];
 }
 
 export interface Ship {
@@ -246,7 +249,7 @@ export type Command =
   | { type: "build"; houseId: string; worldId: string; kind: BuildingKind }
   | { type: "toggleBuilding"; houseId: string; buildingId: string; enabled: boolean }
   | { type: "buildShip"; houseId: string; worldId: string; classId: ShipClassId }
-  | { type: "createRoute"; houseId: string; name: string; stops: RouteStop[]; shipId?: string }
+  | { type: "createRoute"; houseId: string; name: string; stops: RouteStop[]; shipId?: string; autoFuel?: boolean }
   | { type: "updateRoute"; routeId: string; name: string; stops: RouteStop[] }
   | { type: "pauseRoute"; routeId: string; paused: boolean }
   | { type: "assignShip"; shipId: string; routeId: string | null }

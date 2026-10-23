@@ -1617,4 +1617,57 @@ describe("замечания ревью", () => {
     loyalty.state.people[0].loyalty = {};
     expect(() => deserialize(JSON.stringify(loyalty))).toThrow(SaveError);
   });
+
+  it("зерно генератора объектом не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const raw = JSON.parse(serialize(state)) as { state: { seed: unknown } };
+    raw.state.seed = {};
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
+
+  it("имя Еда не переписывает маршрут игрока", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    ship.worldId = "w-bread";
+    ship.fromId = "w-bread";
+    ship.status = "docked";
+    ship.cargo.fuel = 50;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Еда: Хлебный Пояс",
+      shipId: ship.id,
+      stops: [
+        {
+          worldId: "w-bread",
+          actions: [
+            { good: "fuel", mode: "unload", amount: 50, price: 0, keep: 0 },
+            { good: "food", mode: "load", amount: 40, price: 0, keep: 0 },
+          ],
+        },
+        { worldId: "w-harbor", actions: [{ good: "food", mode: "unload", amount: 40, price: 0, keep: 0 }] },
+      ],
+    });
+    runTicks(state, 1);
+    const route = state.routes.find((item) => item.id === ship.routeId)!;
+    const fuel = route.stops[0].actions.find((action) => action.good === "fuel");
+    const food = route.stops[0].actions.find((action) => action.good === "food");
+    expect(fuel).toMatchObject({ mode: "unload", amount: 50 });
+    expect(food).toMatchObject({ mode: "load", amount: 40 });
+  });
+
+  it("еда не занимает место, пока кругу не хватает топлива", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    runTicks(state, 30);
+    for (const route of state.routes) {
+      if (!route.autoFuel) continue;
+      for (const ship of state.ships) {
+        if (ship.routeId !== route.id || !ship.stopReason?.includes("топлив")) continue;
+        expect(sumGoods(ship.cargo) - ship.cargo.fuel).toBe(0);
+      }
+    }
+    expect(audit(state).ok).toBe(true);
+  });
 });

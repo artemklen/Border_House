@@ -26,7 +26,7 @@ export function dispatch(state: SimState, command: Command): CommandResult {
     case "buildShip":
       return buildShip(state, command);
     case "createRoute":
-      return createRoute(state, command.houseId, command.name, command.stops, command.shipId);
+      return createRoute(state, command.houseId, command.name, command.stops, command.shipId, false, command.autoFuel);
     case "updateRoute":
       return updateRoute(state, command.routeId, command.name, command.stops);
     case "pauseRoute":
@@ -155,7 +155,7 @@ function buildShip(state: SimState, command: Extract<Command, { type: "buildShip
   return ok(`верфь займёт ${shipClass.days} дн.`);
 }
 
-function createRoute(state: SimState, houseId: string, name: string, stops: RouteStop[], shipId?: string, keepMission = false): CommandResult {
+function createRoute(state: SimState, houseId: string, name: string, stops: RouteStop[], shipId?: string, keepMission = false, autoFuel = false): CommandResult {
   const house = houseOf(state, houseId);
   if (!house) return fail("дом не найден");
   const checked = validateStops(state, stops);
@@ -178,6 +178,7 @@ function createRoute(state: SimState, houseId: string, name: string, stops: Rout
     lastRevenue: 0,
     lastCost: 0,
     lastFuelUsed: 0,
+    autoFuel: autoFuel || undefined,
   };
   state.routes.push(route);
   note(state, houseId, `Проложен маршрут «${route.name}».`);

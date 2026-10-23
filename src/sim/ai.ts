@@ -90,6 +90,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
             name: `Еда: ${source.name}`,
             shipId: ship.id,
             stops: foodStops(house, ship, source, world),
+            autoFuel: true,
           },
           because: `${house.name} везёт продовольствие «${source.name}» → «${world.name}»: запаса на ${cover} дн.`,
         });
@@ -127,7 +128,10 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     }
   }
 
-  const dry = byId(state.ships).find((ship) => ship.houseId === house.id && ship.stopReason?.includes("топлив") && ship.worldId && ship.status !== "transit");
+  const dry = byId(state.ships).find((ship) => {
+    if (ship.houseId !== house.id || !ship.stopReason?.includes("топлив") || !ship.worldId || ship.status === "transit") return false;
+    return !state.routes.some((route) => route.id === ship.routeId && route.autoFuel);
+  });
   const refuelName = dry ? `Заправка ${dry.name}` : "";
   const alreadyRefueling = dry ? state.routes.some((route) => route.houseId === house.id && route.name === refuelName) : false;
   if (dry?.worldId && !alreadyRefueling && !reserved.has(dry.id)) {
@@ -268,51 +272,74 @@ function foodStops(house: House, ship: Ship, source: World, dest: World): RouteS
   ];
 }
 
-/** На следующем заходе в порт погрузки добирает топливо ровно на круг, не заполняя трюм заранее. */
+/** На следующем заходе добирает топливо на круг. Пока его не хватает, еда не занимает трюм. */
 export function refreshFoodFuel(state: SimState, ship: Ship, world: World, route: Route): void {
-  if (!route.name.startsWith("Еда:")) return;
+  if (!route.autoFuel) return;
   const here = route.stops.find((stop) => stop.worldId === world.id);
   const there = route.stops.find((stop) => stop.worldId !== world.id);
-  if (!here || !there || !here.actions.some((action) => action.good === "food" && (action.mode === "load" || action.mode === "buy"))) return;
+  if (!here || !there || !isFuelPickup(here, route)) return;
   const dest = worldOf(state, there.worldId);
   if (!dest) return;
   const voyage = fuelForLeg(ship, world, dest) + fuelForLeg(ship, dest, world);
-  const free = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
-  const amount = Math.max(0, Math.min(voyage - ship.cargo.fuel, free));
-  const fuel = here.actions.find((action) => action.good === "fuel");
-  if (amount <= 0) {
-    if (!fuel) return;
+  const deficit = Math.max(0, voyage - ship.cargo.fuel);
+  if (deficit > 0) {
+    const food = here.actions.filter(isFoodTake);
+    if (food.length > 0) {
+      route.pausedFood = food;
+      here.actions = here.actions.filter((action) => !food.includes(action));
+      ship.visitKey = "";
+    }
+    const fuel = here.actions.find((action) => action.good === "fuel" && (action.mode === "load" || action.mode === "buy"));
+    if (!fuel) {
+      here.actions.unshift({
+        good: "fuel",
+        mode: world.ownerId === ship.houseId ? "load" : "buy",
+        amount: deficit,
+        price: 30,
+        keep: 0,
+      });
+      ship.visitKey = "";
+      return;
+    }
+    if (fuel.amount !== deficit || fuel.keep !== 0) {
+      fuel.amount = deficit;
+      fuel.keep = 0;
+      ship.visitKey = "";
+    }
+    return;
+  }
+  const fuel = here.actions.find((action) => action.good === "fuel" && (action.mode === "load" || action.mode === "buy"));
+  if (fuel) {
     here.actions = here.actions.filter((action) => action !== fuel);
     ship.visitKey = "";
-    return;
   }
-  if (fuel) {
-    if (fuel.amount === amount && fuel.keep === 0) return;
-    fuel.amount = amount;
-    fuel.keep = 0;
+  if (route.pausedFood?.length && !here.actions.some(isFoodTake)) {
+    here.actions.push(...route.pausedFood);
+    route.pausedFood = undefined;
     ship.visitKey = "";
-    return;
   }
-  here.actions.unshift({
-    good: "fuel",
-    mode: world.ownerId === ship.houseId ? "load" : "buy",
-    amount,
-    price: 30,
-    keep: 0,
-  });
-  ship.visitKey = "";
 }
 
 export function foodRouteNeedsFuel(state: SimState, ship: Ship, route: Route): boolean {
-  if (!route.name.startsWith("Еда:") || !ship.worldId) return false;
+  if (!route.autoFuel || !ship.worldId) return false;
   const here = route.stops.find((stop) => stop.worldId === ship.worldId);
   const there = route.stops.find((stop) => stop.worldId !== ship.worldId);
-  if (!here || !there || !here.actions.some((action) => action.good === "food" && (action.mode === "load" || action.mode === "buy"))) return false;
+  if (!here || !there || !isFuelPickup(here, route)) return false;
+  if (route.pausedFood?.length) return true;
   const origin = worldOf(state, ship.worldId);
   const dest = worldOf(state, there.worldId);
   if (!origin || !dest) return false;
   const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
   return ship.cargo.fuel < voyage;
+}
+
+function isFoodTake(action: RouteStop["actions"][number]): boolean {
+  return action.good === "food" && (action.mode === "load" || action.mode === "buy");
+}
+
+function isFuelPickup(stop: RouteStop, route: Route): boolean {
+  const dropsFood = stop.actions.some((action) => action.good === "food" && (action.mode === "unload" || action.mode === "sell"));
+  return stop.actions.some(isFoodTake) || (Boolean(route.pausedFood?.length) && !dropsFood);
 }
 
 function haulStops(house: House, source: World, dest: World, good: GoodId): RouteStop[] {

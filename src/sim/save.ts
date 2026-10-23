@@ -57,6 +57,7 @@ function requireGoods(value: unknown, label: string): void {
 
 function assertPlayable(state: SimState): void {
   if (state.version !== 1) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
+  if (typeof state.seed !== "number" || !Number.isFinite(state.seed)) throw new SaveError("Файл сохранения повреждён: нет зерна генератора.");
   for (const key of LISTS) {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
   }
