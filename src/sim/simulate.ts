@@ -427,8 +427,10 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       else if (affordable <= 0) {
         ship.stopReason = "у покупателя нет денег";
         hold = true;
-      } else if (action.mode === "buy" && action.good === "fuel" && ship.cargo.fuel > 0) {
-        ship.stopReason = "в трюме нет места для дополнительного топлива";
+      } else if (action.mode === "buy") {
+        ship.stopReason = action.good === "fuel" && ship.cargo.fuel > 0
+          ? "в трюме нет места для дополнительного топлива"
+          : "нет места под груз или на складе";
       } else {
         ship.stopReason = "нет места под груз или на складе";
         hold = true;

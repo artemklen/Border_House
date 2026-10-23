@@ -83,7 +83,11 @@ export function sha256(message: string): string {
 export function canonicalJson(value: unknown): string {
   if (value === undefined) return "null";
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  if (Array.isArray(value)) {
+    const slots: string[] = [];
+    for (let index = 0; index < value.length; index += 1) slots.push(index in value ? canonicalJson(value[index]) : "null");
+    return `[${slots.join(",")}]`;
+  }
   const record = value as Record<string, unknown>;
   const entries = Object.keys(record)
     .filter((key) => record[key] !== undefined)

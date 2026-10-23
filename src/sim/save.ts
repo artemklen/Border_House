@@ -98,6 +98,9 @@ function assertPlayable(state: SimState): void {
     if (!house.flow || !house.lastFlow || flowKeys.some((key) => typeof house.flow[key] !== "number" || typeof house.lastFlow[key] !== "number")) {
       throw new SaveError("Файл сохранения повреждён: у дома нет кассы.");
     }
+    if (typeof house.flowDays !== "number" || !Number.isInteger(house.flowDays) || house.flowDays < 0) {
+      throw new SaveError("Файл сохранения повреждён: окно кассы нечисловое.");
+    }
     if (typeof house.name !== "string" || typeof house.crest !== "string") throw new SaveError("Файл сохранения повреждён: у дома нет имени.");
     if (!isMap(house.embargo) || !isMap(house.relation) || !isMap(house.tradeWith) || !isMap(house.lastTradeWith)) {
       throw new SaveError("Файл сохранения повреждён: у дома нет отношений.");
