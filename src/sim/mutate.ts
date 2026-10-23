@@ -215,9 +215,10 @@ export function takeFoodRation(population: number, foodPer100: number, credit: n
 }
 
 export function foodCover(population: number, food: number, foodPer100: number): number {
-  const need = foodNeed(population, foodPer100);
-  if (need <= 0) return 999;
-  return Math.floor(food / need);
+  const perDay = population * foodPer100;
+  if (population <= 0 || perDay <= 0) return 999;
+  if (food <= 0) return 0;
+  return Math.floor((food * 100) / perDay);
 }
 
 export function clamp(value: number, min: number, max: number): number {

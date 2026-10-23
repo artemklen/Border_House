@@ -55,6 +55,7 @@ function assertPlayable(state: SimState): void {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
   }
   if (!state.rules || typeof state.rules.ticksPerYear !== "number") throw new SaveError("Файл сохранения повреждён: нет правил.");
+  requireGoods(state.rules.basePrice, "базовые цены");
   if (!state.accounts || typeof state.accounts.creditsCreated !== "number" || typeof state.accounts.creditsDestroyed !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет счетов.");
   }
@@ -65,6 +66,9 @@ function assertPlayable(state: SimState): void {
   const houseIds = new Set<string>();
   for (const house of state.houses) {
     if (!house || typeof house.id !== "string" || houseIds.has(house.id)) throw new SaveError("Файл сохранения повреждён: дом без идентификатора.");
+    if (!house.flow || typeof house.flow.wages !== "number" || !house.lastFlow || typeof house.lastFlow.wages !== "number") {
+      throw new SaveError("Файл сохранения повреждён: у дома нет кассы.");
+    }
     houseIds.add(house.id);
   }
   const worldIds = new Set<string>();
@@ -101,6 +105,8 @@ function assertPlayable(state: SimState): void {
     if (ship.routeId && !routeIds.has(ship.routeId)) throw new SaveError("Файл сохранения повреждён: корабль ссылается на неизвестный маршрут.");
   }
   for (const person of state.people) {
-    if (!person || typeof person.id !== "string" || !houseIds.has(person.houseId)) throw new SaveError("Файл сохранения повреждён: человек без дома.");
+    if (!person || typeof person.id !== "string" || !houseIds.has(person.houseId) || !Array.isArray(person.traits)) {
+      throw new SaveError("Файл сохранения повреждён: человек без дома.");
+    }
   }
 }

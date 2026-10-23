@@ -201,7 +201,7 @@ export function createSuccessionScenario(seed = 9, withHeir = true): SimState {
     stock: { food: 20 },
   });
   house.capitalId = world.id;
-  placeShip(state, house.id, world, "skiff", 30);
+  placeShip(state, house.id, world, "skiff", 20);
   placeFamily(state, house, world, 89, withHeir);
   if (!withHeir) {
     for (const person of state.people) {

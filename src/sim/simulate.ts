@@ -309,7 +309,10 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     }
     return false;
   }
+  ensureVisit(ship);
   for (const action of stop.actions) {
+    const wanted = action.amount - (ship.visitMoved[action.good] ?? 0);
+    if (wanted <= 0) continue;
     const roomCargo = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
     const roomStock = world.capacity - sumGoods(world.stock);
     if (action.mode === "load") {
@@ -317,10 +320,11 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
         ship.stopReason = "чужой склад: нужна покупка";
         continue;
       }
-      const qty = Math.min(action.amount, Math.max(0, world.stock[action.good] - action.keep), roomCargo);
+      const qty = Math.min(wanted, Math.max(0, world.stock[action.good] - action.keep), roomCargo);
       if (qty <= 0) ship.stopReason = `нечего грузить: ${goodLabel(action.good)}`;
       else {
         moveGoods(world.stock, ship.cargo, action.good, qty);
+        ship.visitMoved[action.good] += qty;
         ship.supplyFrom[action.good] = ship.houseId;
       }
       continue;
@@ -330,13 +334,14 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
         ship.stopReason = "чужой склад: нужна продажа";
         continue;
       }
-      const qty = Math.min(action.amount, Math.max(0, ship.cargo[action.good] - action.keep), roomStock);
-      if (qty < Math.min(action.amount, ship.cargo[action.good]) && roomStock <= qty) {
+      const qty = Math.min(wanted, Math.max(0, ship.cargo[action.good] - action.keep), roomStock);
+      if (qty < Math.min(wanted, ship.cargo[action.good]) && roomStock <= qty) {
         ship.stopReason = "склад заполнен";
         hold = true;
       }
       if (qty > 0) {
         moveGoods(ship.cargo, world.stock, action.good, qty);
+        ship.visitMoved[action.good] += qty;
         const originHouse = ship.supplyFrom[action.good];
         if (originHouse) {
           if (!world.imported[originHouse]) world.imported[originHouse] = emptyGoods();
@@ -375,7 +380,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     const seller = houseOf(state, sellerHouse);
     if (!buyer || !seller || price <= 0) continue;
     const affordable = Math.floor(buyer.credits / price);
-    const qty = Math.min(action.amount, available, room, affordable);
+    const qty = Math.min(wanted, available, room, affordable);
     if (qty <= 0) {
       if (available <= 0) ship.stopReason = `нет товара с учётом резерва: ${goodLabel(action.good)}`;
       else if (affordable <= 0) {
@@ -390,6 +395,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       continue;
     }
     moveGoods(sellerPile, buyerPile, action.good, qty);
+    ship.visitMoved[action.good] += qty;
     if (action.mode === "buy") ship.supplyFrom[action.good] = world.ownerId ?? ship.houseId;
     moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, qty * price);
     buyer.flow.purchases += qty * price;
@@ -402,6 +408,14 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     countDelivery(state, sellerHouse, world, action.good, qty);
   }
   return hold;
+}
+
+function ensureVisit(ship: Ship): void {
+  const key = `${ship.worldId ?? ""}:${ship.stopIndex}:${ship.routeId ?? ""}`;
+  if (ship.visitKey !== key || !ship.visitMoved) {
+    ship.visitKey = key;
+    ship.visitMoved = emptyGoods();
+  }
 }
 
 function countDelivery(state: SimState, sellerId: string, world: World, good: GoodId, qty: number): void {

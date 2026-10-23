@@ -4,7 +4,7 @@ import { dispatch } from "../src/sim/commands";
 import { createGame } from "../src/sim/create";
 import { createExpansionScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
 import { sumGoods } from "../src/sim/goods";
-import { audit } from "../src/sim/mutate";
+import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
 import { keptWorldId } from "../src/sim/view";
@@ -352,5 +352,84 @@ describe("замечания ревью", () => {
     });
     runTicks(state, 1);
     expect(ship.toId).toBe("w-bread");
+  });
+
+  it("неполные правила, касса или черты не подменяют партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const noPrice = JSON.parse(serialize(state)) as { state: { rules: { basePrice?: unknown } } };
+    delete noPrice.state.rules.basePrice;
+    expect(() => deserialize(JSON.stringify(noPrice))).toThrow(SaveError);
+    const noFlow = JSON.parse(serialize(state)) as { state: { houses: Array<{ flow?: unknown }> } };
+    delete noFlow.state.houses[0].flow;
+    expect(() => deserialize(JSON.stringify(noFlow))).toThrow(SaveError);
+    const noTraits = JSON.parse(serialize(state)) as { state: { people: Array<{ traits?: unknown }> } };
+    delete noTraits.state.people[0].traits;
+    expect(() => deserialize(JSON.stringify(noTraits))).toThrow(SaveError);
+  });
+
+  it("повтор стоянки не закупает ту же партию, пока выход закрыт", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-harbor" && item.classId === "freighter")!;
+    dispatch(state, { type: "setEmbargo", houseId: vega.id, otherId: player.id, embargo: true });
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Руда наружу",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-harbor", actions: [{ good: "ore", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: "w-vega", actions: [{ good: "ore", mode: "sell", amount: 10, price: 1, keep: 0 }] },
+      ],
+    });
+    runTicks(state, 1);
+    const loaded = ship.cargo.ore;
+    expect(loaded).toBeGreaterThan(0);
+    runTicks(state, 3);
+    expect(ship.cargo.ore).toBe(loaded);
+    expect(ship.status).not.toBe("transit");
+    dispatch(state, { type: "setEmbargo", houseId: vega.id, otherId: player.id, embargo: false });
+    for (let day = 0; day < 6 && ship.status !== "transit"; day += 1) runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    expect(ship.toId).toBe("w-vega");
+  });
+
+  it("покрытие еды колонии совпадает с дробным потреблением", () => {
+    expect(foodCover(70, 0, 1)).toBe(0);
+    expect(foodCover(400, 240, 1)).toBe(60);
+  });
+
+  it("после основания колонии корабль не возит набор по кругу", () => {
+    const state = createExpansionScenario();
+    const ai = state.houses.find((house) => house.profile === "expansionist")!;
+    runTicks(state, 30);
+    const ship = state.ships.find((item) => item.houseId === ai.id)!;
+    expect(ship.cargo.fuel === 0 && ship.cargo.parts >= 12 && ship.cargo.food >= 54).toBe(false);
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("ИИ не плодит недостижимые маршруты заправки", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    state.rules.aiInterval = 1;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const skiff = state.ships.find((ship) => ship.houseId === vega.id && ship.classId === "skiff")!;
+    skiff.worldId = "w-vega";
+    skiff.fromId = "w-vega";
+    skiff.status = "blocked";
+    skiff.stopReason = "нет топлива на следующий перегон";
+    const removed = skiff.cargo.fuel - 3;
+    skiff.cargo.fuel = 3;
+    if (removed > 0) state.accounts.goodsDestroyed.fuel += removed;
+    runTicks(state, 15);
+    const refuels = state.routes.filter((route) => route.name.startsWith("Заправка"));
+    expect(refuels.length).toBeLessThanOrEqual(1);
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("сценарий наследования начинается без переполненного трюма", () => {
+    expect(audit(createSuccessionScenario()).ok).toBe(true);
+    expect(audit(createSuccessionScenario(9, false)).ok).toBe(true);
   });
 });

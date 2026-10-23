@@ -1,7 +1,7 @@
 import { dispatch } from "./commands";
-import { RECIPES } from "./config";
-import { GOOD_NAME, type GoodId } from "./goods";
-import { byId, foodCover, foodNeed, houseOf, noteAi, worldOf } from "./mutate";
+import { RECIPES, SHIP_CLASSES } from "./config";
+import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
+import { byId, distance, foodCover, foodNeed, houseOf, noteAi, worldOf } from "./mutate";
 import type { BuildingKind, Command, House, RouteStop, Ship, SimState, Treaty, World } from "./types";
 
 const INPUT_BUILDING: Record<GoodId, BuildingKind> = {
@@ -124,27 +124,41 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     }
   }
 
-  const dry = byId(state.ships).find((ship) => ship.houseId === house.id && ship.stopReason?.includes("топлив") && ship.worldId);
-  if (dry?.worldId) {
-    const pump = byId(state.worlds).find((world) => world.stock.fuel > 30 && (world.ownerId === house.id || world.ownerId));
-    if (pump && pump.id !== dry.worldId) {
+  const dry = byId(state.ships).find((ship) => ship.houseId === house.id && ship.stopReason?.includes("топлив") && ship.worldId && ship.status !== "transit");
+  const refuelName = dry ? `Заправка ${dry.name}` : "";
+  const alreadyRefueling = dry ? state.routes.some((route) => route.houseId === house.id && route.name === refuelName) : false;
+  if (dry?.worldId && !alreadyRefueling) {
+    const here = worldOf(state, dry.worldId);
+    const reachable = here ? reachableFuelWorld(state, dry, here) : undefined;
+    if (here && reachable) {
+      const reserve = 8;
+      const room = SHIP_CLASSES[dry.classId].capacity - sumGoods(dry.cargo);
+      const gained = Math.max(0, Math.min(24, here.stock.fuel - reserve, room));
+      const takeHere = gained > 0 && Boolean(here.ownerId);
       plans.push({
         command: {
           type: "createRoute",
           houseId: house.id,
-          name: `Заправка ${dry.name}`,
+          name: refuelName,
           shipId: dry.id,
           stops: [
-            { worldId: dry.worldId, actions: [] },
             {
-              worldId: pump.id,
-              actions: [pump.ownerId === house.id
+              worldId: here.id,
+              actions: takeHere
+                ? [here.ownerId === house.id
+                  ? { good: "fuel", mode: "load", amount: gained, price: 0, keep: reserve }
+                  : { good: "fuel", mode: "buy", amount: gained, price: 40, keep: reserve }]
+                : [],
+            },
+            {
+              worldId: reachable.id,
+              actions: [reachable.ownerId === house.id
                 ? { good: "fuel", mode: "load", amount: 40, price: 0, keep: 20 }
                 : { good: "fuel", mode: "buy", amount: 30, price: 40, keep: 10 }],
             },
           ],
         },
-        because: `${house.name} снимает ${dry.name} с рейса: нет топлива, ближайший запас на «${pump.name}».`,
+        because: `${house.name} снимает ${dry.name} с рейса: нет топлива, ближайший достижимый запас на «${reachable.name}».`,
       });
     }
   }
@@ -234,6 +248,21 @@ function foodSource(state: SimState, house: House, dest: World): World | undefin
     .filter((world) => world.id !== dest.id && world.stock.food > 50)
     .filter((world) => !world.ownerId || world.ownerId === house.id || houseOf(state, world.ownerId)?.embargo[house.id] !== true)
     .sort((a, b) => a.prices.food - b.prices.food || a.x - b.x)[0];
+}
+
+function fuelForLeg(ship: Ship, from: World, to: World): number {
+  const shipClass = SHIP_CLASSES[ship.classId];
+  return Math.max(1, Math.ceil((distance(from, to) * shipClass.fuelPer1000) / 1000));
+}
+
+function reachableFuelWorld(state: SimState, ship: Ship, here: World): World | undefined {
+  const reserve = 8;
+  const room = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
+  const gained = here.ownerId && here.stock.fuel > reserve ? Math.max(0, Math.min(24, here.stock.fuel - reserve, room)) : 0;
+  const aboard = ship.cargo.fuel + gained;
+  return byId(state.worlds)
+    .filter((world) => world.id !== here.id && world.stock.fuel > 30 && fuelForLeg(ship, here, world) <= aboard)
+    .sort((a, b) => distance(here, a) - distance(here, b))[0];
 }
 
 function stockSource(state: SimState, house: House, dest: World, good: GoodId): World | undefined {

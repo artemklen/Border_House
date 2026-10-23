@@ -146,6 +146,8 @@ function buildShip(state: SimState, command: Extract<Command, { type: "buildShip
     traveled: 0,
     tollWorldId: world.id,
     supplyFrom: {},
+    visitKey: "",
+    visitMoved: emptyGoods(),
   });
   note(state, command.houseId, `Заложена ${shipClass.name} на «${world.name}».`);
   return ok(`верфь займёт ${shipClass.days} дн.`);
@@ -366,6 +368,7 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
   }
   const origin = route?.stops.find((stop) => stop.worldId === ship.worldId);
   if (origin) origin.actions = colonyLoadActions(state, ship);
+  ship.visitKey = "";
   return ok();
 }
 
@@ -413,6 +416,7 @@ export function foundColony(state: SimState, ship: Ship, world: World): CommandR
   world.specialty = "молодая колония";
   world.governorId = null;
   ship.mission = null;
+  ship.routeId = null;
   ship.tollWorldId = world.id;
   note(state, house.id, `Основана колония «${world.name}». Население ${rules.colonizePop}, предприятий нет, удовлетворённость низкая: мир ещё нужно снабжать.`);
   return ok("колония основана");

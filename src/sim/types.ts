@@ -170,6 +170,10 @@ export interface Ship {
   traveled: number;
   /** Откуда в трюме появилась партия товара: дом-продавец или свой дом при погрузке. */
   supplyFrom: Partial<Record<GoodId, string>>;
+  /** Ключ текущего захода в порт. Сбрасывается при смене мира или маршрута. */
+  visitKey: string;
+  /** Сколько каждого товара уже проведено через правила этой стоянки. Повтор тика не закупает то же самое. */
+  visitMoved: Goods;
 }
 
 export interface Treaty {
