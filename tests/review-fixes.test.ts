@@ -8,7 +8,7 @@ import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
-import { keptWorldId } from "../src/sim/view";
+import { colonyShip, keptOtherHouseId, keptShipId, keptWorldId } from "../src/sim/view";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -607,5 +607,89 @@ describe("замечания ревью", () => {
     expect(house.flow.upkeep).toBe(15);
     expect(ship.status).not.toBe("transit");
     expect(audit(state).ok).toBe(true);
+  });
+
+  it("неизвестное предприятие не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const broken = JSON.parse(serialize(state)) as { state: { worlds: Array<{ buildings: Array<{ kind?: string }> }> } };
+    broken.state.worlds[0].buildings[0].kind = "palace";
+    expect(() => deserialize(JSON.stringify(broken))).toThrow(SaveError);
+  });
+
+  it("выгрузка остатка сверх резерва не держит корабль на полном складе", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ship = state.ships[0];
+    const dock = state.worlds.find((world) => world.id === "l-dock")!;
+    ship.worldId = dock.id;
+    ship.fromId = dock.id;
+    ship.tollWorldId = dock.id;
+    ship.cargo.ore = 20;
+    state.accounts.goodsCreated.ore += 20;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Резерв",
+      shipId: ship.id,
+      stops: [
+        { worldId: "l-dock", actions: [{ good: "ore", mode: "unload", amount: 20, price: 0, keep: 12 }] },
+        { worldId: "l-ore", actions: [] },
+      ],
+    });
+    runTicks(state, 2);
+    expect(ship.cargo.ore).toBe(12);
+    expect(ship.status).toBe("transit");
+    expect(ship.toId).toBe("l-ore");
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("переназначение в пути начинает новый маршрут с первой остановки", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread" && item.classId === "freighter")!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "В гавань",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    for (let day = 0; day < 6 && ship.status !== "transit"; day += 1) runTicks(state, 1);
+    expect(ship.toId).toBe("w-harbor");
+    expect(ship.stopIndex).toBe(1);
+    const created = dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Топливо и руда",
+      stops: [
+        { worldId: "w-fuel", actions: [] },
+        { worldId: "w-ore", actions: [] },
+      ],
+    });
+    expect(created.ok).toBe(true);
+    const routeId = state.routes.find((route) => route.name === "Топливо и руда")!.id;
+    dispatch(state, { type: "assignShip", shipId: ship.id, routeId });
+    expect(ship.toId).toBe("w-harbor");
+    expect(ship.stopIndex).toBe(0);
+    ship.distanceLeft = 1;
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    expect(ship.toId).toBe("w-fuel");
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("колония берёт выбранный корабль, а чужая партия сбрасывает выбор", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const ships = state.ships.filter((ship) => ship.houseId === player.id && ship.status !== "building");
+    expect(colonyShip(ships, player.id, ships[1].id)?.id).toBe(ships[1].id);
+    expect(colonyShip(ships, player.id, "")?.id).toBe(ships[0].id);
+    const other = createLogisticsScenario();
+    expect(keptShipId(other.ships, other.houses[0].id, ships[0].id)).toBe("");
+    expect(keptOtherHouseId(other.houses, other.houses[0].id, "h-4")).toBe("");
   });
 });

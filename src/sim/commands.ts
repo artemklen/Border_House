@@ -226,7 +226,9 @@ function assignShip(state: SimState, shipId: string, routeId: string | null, kee
   if (route.houseId !== ship.houseId) return fail("чужой маршрут");
   ship.routeId = route.id;
   if (!keepMission) ship.mission = null;
-  if (ship.status !== "transit" && ship.worldId) {
+  if (ship.status === "transit") {
+    ship.stopIndex = 0;
+  } else if (ship.worldId) {
     const index = route.stops.findIndex((stop) => stop.worldId === ship.worldId);
     ship.stopIndex = index >= 0 ? index : 0;
   }

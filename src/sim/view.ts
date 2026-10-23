@@ -151,6 +151,19 @@ export function hintLines(state: SimState): string[] {
   return tips.slice(0, 3);
 }
 
+export function colonyShip(ships: Ship[], houseId: string, preferredId: string): Ship | undefined {
+  const preferred = ships.find((ship) => ship.id === preferredId && ship.houseId === houseId && ship.status !== "building");
+  return preferred ?? ships.find((ship) => ship.houseId === houseId && ship.status !== "building");
+}
+
+export function keptShipId(ships: Array<{ id: string; houseId: string }>, houseId: string, current: string): string {
+  return ships.some((ship) => ship.id === current && ship.houseId === houseId) ? current : "";
+}
+
+export function keptOtherHouseId(houses: Array<{ id: string }>, playerId: string, current: string): string {
+  return houses.some((house) => house.id === current && house.id !== playerId) ? current : "";
+}
+
 export function keptWorldId(worlds: Array<{ id: string }>, current: string): string {
   if (worlds.some((world) => world.id === current)) return current;
   return worlds[0]?.id ?? "";

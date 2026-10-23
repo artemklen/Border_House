@@ -333,8 +333,9 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
         ship.stopReason = "чужой склад: нужна продажа";
         continue;
       }
-      const qty = Math.min(wanted, Math.max(0, ship.cargo[action.good] - action.keep), roomStock);
-      if (qty < Math.min(wanted, ship.cargo[action.good]) && roomStock <= qty) {
+      const eligible = Math.max(0, ship.cargo[action.good] - action.keep);
+      const qty = Math.min(wanted, eligible, roomStock);
+      if (qty < Math.min(wanted, eligible) && roomStock <= qty) {
         ship.stopReason = "склад заполнен";
         hold = true;
       }

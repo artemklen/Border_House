@@ -14,10 +14,13 @@ import {
   dependencyRows,
   explainBuilding,
   explainPrice,
+  colonyShip,
   explainShip,
   formatDay,
   governorBlurb,
   hintLines,
+  keptOtherHouseId,
+  keptShipId,
   keptWorldId,
   worldOwnerName,
 } from "../sim/view";
@@ -138,6 +141,9 @@ export function App() {
     setSelected({ kind: "world", id: next.worlds[0]?.id ?? "" });
     setTab("world");
     setMessage("Партия на паузе. Пробел продолжает время. Подсказки снизу не блокируют приказы.");
+    const playerId = next.houses.find((house) => house.player)?.id ?? "";
+    setShipId(keptShipId(next.ships, playerId, shipId));
+    setOtherHouse(keptOtherHouseId(next.houses, playerId, otherHouse));
     setStopWorld(keptWorldId(next.worlds, ""));
     setDraftStops([]);
     cameraRef.current = { x: 560, y: 380, zoom: 0.68 };
@@ -287,7 +293,7 @@ export function App() {
                     onExplain={(good) => setMessage(explainPrice(sim, selectedWorld?.id ?? sim.worlds[0].id, good))}
                     onColonize={() => {
                       const world = selectedWorld;
-                      const ship = sim.ships.find((item) => item.houseId === player.id && item.status !== "building");
+                      const ship = colonyShip(sim.ships, player.id, shipId);
                       if (!world || !ship) return;
                       setConfirm({
                         title: `Основать колонию на «${world.name}»`,

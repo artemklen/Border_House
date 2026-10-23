@@ -1,4 +1,4 @@
-import { SHIP_CLASSES } from "./config";
+import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS } from "./goods";
 import type { SimState } from "./types";
 
@@ -87,6 +87,9 @@ function assertPlayable(state: SimState): void {
     }
     if (!world.imported || typeof world.imported !== "object") throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
     if (world.ownerId && !houseIds.has(world.ownerId)) throw new SaveError("Файл сохранения повреждён: мир ссылается на неизвестный дом.");
+    for (const building of world.buildings) {
+      if (!building || !(building.kind in RECIPES)) throw new SaveError("Файл сохранения повреждён: неизвестное предприятие.");
+    }
     worldIds.add(world.id);
   }
   const routeIds = new Set<string>();
