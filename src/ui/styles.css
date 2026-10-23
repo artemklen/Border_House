@@ -8,7 +8,7 @@
 
 * { box-sizing: border-box; }
 
-body, #root { margin: 0; min-height: 100vh; }
+body, #root { margin: 0; height: 100%; overflow: hidden; }
 
 button, input, select {
   font: inherit;
@@ -31,7 +31,10 @@ h1, h2, h3 { font-family: Georgia, "Iowan Old Style", Palatino, serif; font-weig
 h1 { font-size: 1.7rem; letter-spacing: 0.03em; }
 h2 { font-size: 1.15rem; }
 
-.app { min-height: 100vh; display: flex; flex-direction: column; }
+html { height: 100%; }
+
+.app { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.app:has(.menu) { overflow: auto; }
 .topbar, .ticker {
   display: flex;
   gap: 0.6rem;
@@ -46,7 +49,7 @@ h2 { font-size: 1.15rem; }
 .credits { color: #f0d48a; }
 
 .stage { flex: 1; display: flex; min-height: 0; }
-.map-wrap { flex: 1; position: relative; min-width: 0; min-height: 420px; }
+.map-wrap { flex: 1; position: relative; min-width: 0; min-height: 0; }
 canvas { width: 100%; height: 100%; display: block; cursor: grab; }
 canvas.dragging { cursor: grabbing; }
 .legend {
@@ -66,10 +69,11 @@ aside {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 .tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.45rem; border-bottom: 1px solid #3d3226; }
 .tabs button[aria-selected="true"] { background: #6d4d1e; }
-.panel { overflow: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.panel { flex: 1; min-height: 0; overflow: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.7rem; }
 .card, .menu, dialog {
   background: #1c1814;
   border: 1px solid #4a3d2c;
@@ -114,6 +118,7 @@ input, select { background: #0e0c0a; border: 1px solid #5c4a30; border-radius: 4
 
 @media (max-width: 900px) {
   .stage { flex-direction: column; }
-  .map-wrap { min-height: 46vh; }
-  aside { width: 100%; border-left: 0; border-top: 1px solid #3d3226; }
+  .map-wrap { flex: 0 0 38vh; min-height: 38vh; }
+  aside { width: 100%; flex: 1; min-height: 0; border-left: 0; border-top: 1px solid #3d3226; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; }
 }

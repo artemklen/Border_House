@@ -163,7 +163,10 @@ function assertPlayable(state: SimState): void {
     if (!ship || typeof ship.id !== "string" || !ship.cargo || !houseIds.has(ship.houseId)) throw new SaveError("Файл сохранения повреждён: корабль без трюма.");
     if (typeof ship.classId !== "string" || !Object.hasOwn(SHIP_CLASSES, ship.classId)) throw new SaveError("Файл сохранения повреждён: неизвестный класс корабля.");
     if (typeof ship.name !== "string") throw new SaveError("Файл сохранения повреждён: у корабля нет имени.");
-    if (GOODS.some((good) => typeof ship.cargo[good] !== "number")) throw new SaveError("Файл сохранения повреждён: трюм корабля неполный.");
+    if (GOODS.some((good) => !Number.isInteger(ship.cargo[good]) || ship.cargo[good] < 0)) throw new SaveError("Файл сохранения повреждён: трюм корабля неполный.");
+    if (ship.visitMoved != null && (!Array.isArray(ship.visitMoved) || ship.visitMoved.some((moved) => moved != null && (!Number.isInteger(moved) || moved < 0)))) {
+      throw new SaveError("Файл сохранения повреждён: учёт стоянки повреждён.");
+    }
     if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
     normalizeSupply(ship);
     if (ship.routeId && !routeIds.has(ship.routeId)) throw new SaveError("Файл сохранения повреждён: корабль ссылается на неизвестный маршрут.");

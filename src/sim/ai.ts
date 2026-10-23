@@ -49,6 +49,9 @@ function judgeTreaty(state: SimState, house: House, treaty: Treaty): { accept: b
   }).length;
   if (relation < -45) return { accept: false, because: `${house.name} отказывает: отношения ${relation}, ниже порога -45.` };
   if ((treaty.kind === "exchange" || treaty.kind === "supply") && cover < 22 && alternatives === 0 && treaty.qtyPerWindow >= 8) {
+    if (treaty.good !== "food") {
+      return { accept: false, because: `${house.name} отказывает: обещано ${GOOD_NAME[treaty.good]}, а столице не хватает еды.` };
+    }
     return { accept: true, because: `${house.name} принимает поставки: у столицы еды на ${cover} дн., других складов больше 60 ед. нет.` };
   }
   if (treaty.kind === "transit" && cover < 20 && treaty.tariffBps <= 500) {

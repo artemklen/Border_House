@@ -1882,4 +1882,41 @@ describe("замечания ревью", () => {
     expect(ship.visitMoved[1]).toBe(5);
     expect(hashState(state)).toBe(hashState(deserialize(serialize(state))));
   });
+
+  it("объект в учёте стоянки и дробный трюм не подменяют партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const brokenVisit = JSON.parse(serialize(state)) as { state: { ships: Array<{ visitMoved?: unknown }> } };
+    brokenVisit.state.ships[0].visitMoved = [{}];
+    expect(() => deserialize(JSON.stringify(brokenVisit))).toThrow(SaveError);
+    const fractional = JSON.parse(serialize(state)) as { state: { ships: Array<{ cargo: { food: number } }> } };
+    fractional.state.ships[0].cargo.food = 1.5;
+    expect(() => deserialize(JSON.stringify(fractional))).toThrow(SaveError);
+    const holes = JSON.parse(serialize(state)) as { state: { ships: Array<{ visitMoved?: unknown }> } };
+    holes.state.ships[0].visitMoved = [null, 4];
+    const loaded = deserialize(JSON.stringify(holes));
+    expect(loaded.ships[0].visitMoved[1]).toBe(4);
+    const legacy = JSON.parse(serialize(state)) as { state: { ships: Array<{ visitMoved?: unknown }> } };
+    delete legacy.state.ships[0].visitMoved;
+    expect(() => deserialize(JSON.stringify(legacy))).not.toThrow();
+  });
+
+  it("голодная Вега не меняет пошлину на руду", () => {
+    const state = createGame({ seed: 4, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    dispatch(state, {
+      type: "proposeTreaty",
+      houseId: player.id,
+      otherId: vega.id,
+      kind: "exchange",
+      tariffBps: 0,
+      good: "ore",
+      qtyPerWindow: 8,
+      duration: 48,
+    });
+    runTicks(state, 5);
+    const treaty = state.treaties.find((item) => item.proposerId === player.id)!;
+    expect(treaty.status).toBe("rejected");
+    expect(state.aiLog.some((entry) => entry.text.includes("обещано руда"))).toBe(true);
+  });
 });
