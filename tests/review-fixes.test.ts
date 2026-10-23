@@ -1733,4 +1733,63 @@ describe("замечания ревью", () => {
     delete raw.state.treaties[0].tariffBps;
     expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
   });
+
+  it("число вместо книги импорта не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const raw = JSON.parse(serialize(state)) as { state: { worlds: Array<{ imported: Record<string, unknown> }> } };
+    raw.state.worlds[0].imported["h-1"] = 3;
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
+
+  it("один проход не закладывает две фермы на один мир", () => {
+    const state = createIndustryScenario();
+    const ai = state.houses.find((house) => house.name === "Дом Орион")!;
+    const forge = state.worlds.find((world) => world.id === "i-forge")!;
+    forge.stock.food = 0;
+    forge.population = 100;
+    placeBuilding(state, forge, ai.id, "mill");
+    forge.buildings.at(-1)!.stopReason = "не хватает: зерно";
+    const ship = state.ships.find((item) => item.houseId === ai.id)!;
+    ship.status = "transit";
+    ship.worldId = null;
+    planAi(state);
+    expect(forge.buildings.filter((building) => building.kind === "farm")).toHaveLength(1);
+    expect(forge.stock.parts).toBe(4);
+  });
+
+  it("частичная продажа из-за денег держит корабль", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const buyer = state.houses.find((house) => house.name === "Дом Вега")!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    const market = state.worlds.find((world) => world.id === "w-vega")!;
+    ship.worldId = "w-vega";
+    ship.fromId = "w-vega";
+    ship.tollWorldId = "w-vega";
+    ship.status = "docked";
+    ship.cargo.food = 20;
+    state.accounts.goodsCreated.food += 20;
+    for (const world of state.worlds) {
+      if (world.ownerId === buyer.id) world.population = 0;
+    }
+    for (const building of market.buildings) building.enabled = false;
+    market.prices.food = 1000;
+    buyer.credits = 1030;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Сбыт в долг",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-vega", actions: [{ good: "food", mode: "sell", amount: 20, price: 1, keep: 0 }] },
+        { worldId: "w-bread", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.cargo.food).toBe(19);
+    expect(ship.worldId).toBe("w-vega");
+    expect(ship.status).toBe("docked");
+    expect(ship.stopReason).toBe("у покупателя нет денег");
+  });
 });

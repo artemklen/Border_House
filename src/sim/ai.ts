@@ -61,6 +61,13 @@ function judgeTreaty(state: SimState, house: House, treaty: Treaty): { accept: b
 function ideas(state: SimState, house: House): Array<{ command: Command; because: string }> {
   const plans: Array<{ command: Command; because: string }> = [];
   const reserved = new Set<string>();
+  const queuedBuild = new Set<string>();
+  const queueBuild = (worldId: string, kind: BuildingKind, because: string) => {
+    const key = `${worldId}:${kind}`;
+    if (queuedBuild.has(key)) return;
+    queuedBuild.add(key);
+    plans.push({ command: { type: "build", houseId: house.id, worldId, kind }, because });
+  };
   const owned = byId(state.worlds).filter((world) => world.ownerId === house.id);
   const hungry = owned
     .filter((world) => foodCover(world.population, world.stock.food, state.rules.foodPer100) < 18)
@@ -68,15 +75,11 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
   for (const world of hungry) {
     const cover = foodCover(world.population, world.stock.food, state.rules.foodPer100);
     if (!world.buildings.some((building) => building.kind === "mill") && world.stock.grain >= 20) {
-      const command: Command = { type: "build", houseId: house.id, worldId: world.id, kind: "mill" };
-      plans.push({ command, because: `${house.name} строит мельницу на «${world.name}»: еды на ${cover} дн., зерно уже есть.` });
+      queueBuild(world.id, "mill", `${house.name} строит мельницу на «${world.name}»: еды на ${cover} дн., зерно уже есть.`);
       break;
     }
     if (!world.buildings.some((building) => building.kind === "farm")) {
-      plans.push({
-        command: { type: "build", houseId: house.id, worldId: world.id, kind: "farm" },
-        because: `${house.name} закладывает ферму на «${world.name}»: своего зерна нет, запас еды на ${cover} дн.`,
-      });
+      queueBuild(world.id, "farm", `${house.name} закладывает ферму на «${world.name}»: своего зерна нет, запас еды на ${cover} дн.`);
     }
     const source = foodSource(state, house, world);
     if (source && !linked(state, house.id, source.id, world.id, "food")) {
@@ -119,11 +122,8 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
           },
           because: `${house.name} везёт ${GOOD_NAME[missing]} с «${source.name}», чтобы запустить производство на «${world.name}».`,
         });
-      } else if (!world.buildings.some((item) => item.kind === upstream) && canExtract(world, upstream)) {
-        plans.push({
-          command: { type: "build", houseId: house.id, worldId: world.id, kind: upstream },
-          because: `${house.name} строит ${RECIPES[upstream].name} на «${world.name}»: производство встало без «${GOOD_NAME[missing]}», подвозить нечего.`,
-        });
+      } else if (!world.buildings.some((item) => item.kind === upstream) && !queuedBuild.has(`${world.id}:${upstream}`) && canExtract(world, upstream)) {
+        queueBuild(world.id, upstream, `${house.name} строит ${RECIPES[upstream].name} на «${world.name}»: производство встало без «${GOOD_NAME[missing]}», подвозить нечего.`);
       }
     }
   }

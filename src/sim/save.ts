@@ -126,7 +126,7 @@ function assertPlayable(state: SimState): void {
     if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number" || typeof world.popWallet !== "number" || !Number.isInteger(world.popWallet) || world.popWallet < 0 || typeof world.satisfaction !== "number" || !Number.isFinite(world.satisfaction)) {
       throw new SaveError("Файл сохранения повреждён: население или кошелёк мира нечисловые.");
     }
-    if (!world.imported || typeof world.imported !== "object") throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
+    if (!isMap(world.imported) || !isGoodsLedger(world.imported) || !isGoodsLedger(world.lastImported)) throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
     if (world.ownerId && !houseIds.has(world.ownerId)) throw new SaveError("Файл сохранения повреждён: мир ссылается на неизвестный дом.");
     for (const building of world.buildings) {
       if (!building || typeof building.kind !== "string" || !Object.hasOwn(RECIPES, building.kind)) throw new SaveError("Файл сохранения повреждён: неизвестное предприятие.");
@@ -195,6 +195,10 @@ function requireInt(value: unknown, min: number, max: number): value is number {
 
 function isMap(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isGoodsLedger(value: Record<string, unknown>): boolean {
+  return Object.values(value).every((entry) => isMap(entry) && GOODS.every((good) => typeof entry[good] === "number"));
 }
 
 function isWorldRef(id: unknown, worldIds: Set<string>): boolean {
