@@ -1451,4 +1451,14 @@ describe("замечания ревью", () => {
     delete noSales.state.houses[0].flow.sales;
     expect(() => deserialize(JSON.stringify(noSales))).toThrow(SaveError);
   });
+
+  it("унаследованные имена класса и предприятия не подменяют партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const kind = JSON.parse(serialize(state)) as { state: { worlds: Array<{ buildings: Array<{ kind: string }> }> } };
+    kind.state.worlds[0].buildings[0].kind = "constructor";
+    expect(() => deserialize(JSON.stringify(kind))).toThrow(SaveError);
+    const ship = JSON.parse(serialize(state)) as { state: { ships: Array<{ classId: string }> } };
+    ship.state.ships[0].classId = "constructor";
+    expect(() => deserialize(JSON.stringify(ship))).toThrow(SaveError);
+  });
 });

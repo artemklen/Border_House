@@ -126,7 +126,7 @@ function assertPlayable(state: SimState): void {
     if (!world.imported || typeof world.imported !== "object") throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
     if (world.ownerId && !houseIds.has(world.ownerId)) throw new SaveError("Файл сохранения повреждён: мир ссылается на неизвестный дом.");
     for (const building of world.buildings) {
-      if (!building || !(building.kind in RECIPES)) throw new SaveError("Файл сохранения повреждён: неизвестное предприятие.");
+      if (!building || typeof building.kind !== "string" || !Object.hasOwn(RECIPES, building.kind)) throw new SaveError("Файл сохранения повреждён: неизвестное предприятие.");
     }
     worldIds.add(world.id);
   }
@@ -150,7 +150,7 @@ function assertPlayable(state: SimState): void {
   }
   for (const ship of state.ships) {
     if (!ship || typeof ship.id !== "string" || !ship.cargo || !houseIds.has(ship.houseId)) throw new SaveError("Файл сохранения повреждён: корабль без трюма.");
-    if (!(ship.classId in SHIP_CLASSES)) throw new SaveError("Файл сохранения повреждён: неизвестный класс корабля.");
+    if (typeof ship.classId !== "string" || !Object.hasOwn(SHIP_CLASSES, ship.classId)) throw new SaveError("Файл сохранения повреждён: неизвестный класс корабля.");
     if (GOODS.some((good) => typeof ship.cargo[good] !== "number")) throw new SaveError("Файл сохранения повреждён: трюм корабля неполный.");
     if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
     normalizeSupply(ship);

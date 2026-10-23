@@ -84,6 +84,19 @@ export function App() {
   const [treatyTariff, setTreatyTariff] = useState(300);
   selectedRef.current = selected;
 
+  const mapReady = Boolean(sim);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const next = cameraRef.current.zoom * (event.deltaY > 0 ? 0.9 : 1.1);
+      cameraRef.current.zoom = Math.max(0.28, Math.min(2.2, next));
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [mapReady]);
+
   useEffect(() => {
     let frame = 0;
     let last = performance.now();
@@ -267,11 +280,6 @@ export function App() {
                     pickAt(event.clientX - rect.left, event.clientY - rect.top);
                   }
                   dragRef.current = null;
-                }}
-                onWheel={(event) => {
-                  event.preventDefault();
-                  const next = cameraRef.current.zoom * (event.deltaY > 0 ? 0.9 : 1.1);
-                  cameraRef.current.zoom = Math.max(0.28, Math.min(2.2, next));
                 }}
               />
               <div className="legend">
