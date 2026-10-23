@@ -77,9 +77,9 @@ export function bottlenecks(state: SimState, houseId: string): Bottleneck[] {
   for (const world of state.worlds) {
     if (world.ownerId !== houseId) continue;
     const cover = foodCover(world.population, world.stock.food, state.rules.foodPer100);
-    const need = foodNeed(world.population, state.rules.foodPer100);
-    if (need > 0 && cover < 10) {
-      items.push({ title: `${world.name}: еда на ${cover} дн.`, detail: `Население ${world.population} съедает ${need} ед./день. На складе ${world.stock.food}. Удовлетворённость ${world.satisfaction}.` });
+    const perDay = (world.population * state.rules.foodPer100) / 100;
+    if (world.population > 0 && perDay > 0 && cover < 10) {
+      items.push({ title: `${world.name}: еда на ${cover} дн.`, detail: `Население ${world.population} съедает ${perDay} ед./день. На складе ${world.stock.food}. Удовлетворённость ${world.satisfaction}.` });
     }
     for (const building of world.buildings) {
       if (building.stopReason) items.push({ title: `${RECIPES[building.kind].name} на «${world.name}»`, detail: building.stopReason });

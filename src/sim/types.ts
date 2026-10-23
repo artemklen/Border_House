@@ -168,8 +168,8 @@ export interface Ship {
   remainingDays: number;
   mission: { type: "colonize"; worldId: string } | null;
   traveled: number;
-  /** Откуда в трюме появилась партия товара: дом-продавец или свой дом при погрузке. */
-  supplyFrom: Partial<Record<GoodId, string>>;
+  /** Сколько единиц каждого товара пришло от каждого дома. Выгрузка делит учёт по этим долям. */
+  supplyFrom: Partial<Record<GoodId, Record<string, number>>>;
   /** Ключ текущего захода в порт. Сбрасывается при смене мира или маршрута. */
   visitKey: string;
   /** Сколько уже проведено по каждому действию этой стоянки. Повтор тика не исполняет то же правило снова. */

@@ -9,6 +9,8 @@ import {
   cloneImported,
   destroyGoods,
   distance,
+  drawSupply,
+  rememberSupply,
   emptyFlow,
   takeFoodRation,
   houseOf,
@@ -324,7 +326,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       else {
         moveGoods(world.stock, ship.cargo, action.good, qty);
         ship.visitMoved[index] = moved + qty;
-        ship.supplyFrom[action.good] = ship.houseId;
+        rememberSupply(ship, action.good, ship.houseId, qty);
       }
       continue;
     }
@@ -342,11 +344,10 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       if (qty > 0) {
         moveGoods(ship.cargo, world.stock, action.good, qty);
         ship.visitMoved[index] = moved + qty;
-        const originHouse = ship.supplyFrom[action.good];
-        if (originHouse) {
-          if (!world.imported[originHouse]) world.imported[originHouse] = emptyGoods();
-          world.imported[originHouse][action.good] += qty;
-          countDelivery(state, originHouse, world, action.good, qty);
+        for (const slice of drawSupply(ship, action.good, qty)) {
+          if (!world.imported[slice.houseId]) world.imported[slice.houseId] = emptyGoods();
+          world.imported[slice.houseId][action.good] += slice.qty;
+          countDelivery(state, slice.houseId, world, action.good, slice.qty);
         }
       } else if (ship.cargo[action.good] > action.keep) {
         ship.stopReason = "склад заполнен";
@@ -396,7 +397,8 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     }
     moveGoods(sellerPile, buyerPile, action.good, qty);
     ship.visitMoved[index] = moved + qty;
-    if (action.mode === "buy") ship.supplyFrom[action.good] = world.ownerId ?? ship.houseId;
+    if (action.mode === "buy") rememberSupply(ship, action.good, world.ownerId ?? ship.houseId, qty);
+    if (action.mode === "sell") drawSupply(ship, action.good, qty);
     moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, qty * price);
     buyer.flow.purchases += qty * price;
     seller.flow.sales += qty * price;
@@ -485,6 +487,7 @@ function depart(state: SimState, ship: Ship, route: Route): void {
     return;
   }
   destroyGoods(ship.cargo, state.accounts, "fuel", fuel);
+  drawSupply(ship, "fuel", fuel);
   route.fuelUsed += fuel;
   for (const fee of fees) {
     if (fee.fee <= 0 || !fee.world.ownerId) continue;

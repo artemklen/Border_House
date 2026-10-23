@@ -3,6 +3,8 @@ import { GOODS, emptyGoods, type GoodId } from "./goods";
 import {
   buildingOf,
   destroyGoods,
+  distance,
+  drawSupply,
   houseOf,
   moveCredits,
   note,
@@ -189,7 +191,11 @@ function updateRoute(state: SimState, routeId: string, name: string, stops: Rout
   route.stops = stops;
   route.name = name.trim() || route.name;
   for (const ship of state.ships) {
-    if (ship.routeId !== route.id || ship.status === "transit") continue;
+    if (ship.routeId !== route.id) continue;
+    if (ship.status === "transit") {
+      ship.stopIndex = 0;
+      continue;
+    }
     ship.visitKey = "";
     ship.visitMoved = [];
   }
@@ -337,6 +343,11 @@ function colonize(state: SimState, houseId: string, shipId: string, worldId: str
   if (ship.houseId !== house.id) return fail("чужой корабль");
   if (ship.status === "building") return fail("корабль ещё строится");
   if (target.ownerId) return fail("мир уже принадлежит дому");
+  const kit = state.rules.colonizeFood + state.rules.colonizeParts;
+  const capacity = SHIP_CLASSES[ship.classId].capacity;
+  if (capacity < kit) {
+    return fail(`трюм ${capacity} ед. не вмещает набор: ${state.rules.colonizeFood} продовольствия и ${state.rules.colonizeParts} комплектующих`);
+  }
   ship.mission = { type: "colonize", worldId: target.id };
   note(
     state,
@@ -356,9 +367,15 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
   const target = worldOf(state, ship.mission.worldId);
   const house = houseOf(state, ship.houseId);
   if (!target || !house) return fail("нет цели колонии");
-  let route = routeOf(state, ship.routeId);
-  const aimed = route?.stops[0]?.worldId === ship.worldId && route.stops.some((stop) => stop.worldId === target.id);
-  if (!route || !aimed) {
+  const route = routeOf(state, ship.routeId);
+  const dedicated = Boolean(
+    route
+    && route.name.startsWith(`Колония ${target.name}`)
+    && route.stops[0]?.worldId === ship.worldId
+    && route.stops.some((stop) => stop.worldId === target.id)
+    && state.ships.every((other) => other.id === ship.id || other.routeId !== route.id),
+  );
+  if (!dedicated) {
     const created = createRoute(
       state,
       house.id,
@@ -371,18 +388,30 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
       true,
     );
     if (!created.ok) return created;
-    route = routeOf(state, ship.routeId);
   }
-  const origin = route?.stops.find((stop) => stop.worldId === ship.worldId);
-  if (origin) origin.actions = colonyLoadActions(state, ship);
+  const current = routeOf(state, ship.routeId);
+  const origin = current?.stops.find((stop) => stop.worldId === ship.worldId);
+  if (origin && current && state.ships.every((other) => other.id === ship.id || other.routeId !== current.id)) {
+    origin.actions = colonyLoadActions(state, ship);
+  }
   ship.visitKey = "";
   return ok();
 }
 
+function colonyFuelTarget(state: SimState, ship: Ship): number {
+  const rules = state.rules;
+  const room = SHIP_CLASSES[ship.classId].capacity - rules.colonizeParts - rules.colonizeFood;
+  if (room <= 0) return 0;
+  const here = worldOf(state, ship.worldId);
+  const target = ship.mission?.type === "colonize" ? worldOf(state, ship.mission.worldId) : undefined;
+  if (!here || !target || here.id === target.id) return Math.min(room, 24);
+  const needed = Math.max(1, Math.ceil((distance(here, target) * SHIP_CLASSES[ship.classId].fuelPer1000) / 1000));
+  return Math.min(needed, room);
+}
+
 function colonyLoadActions(state: SimState, ship: Ship): RouteStop["actions"] {
   const rules = state.rules;
-  const capacity = SHIP_CLASSES[ship.classId].capacity;
-  const fuelTarget = Math.max(0, Math.min(24, capacity - rules.colonizeParts - rules.colonizeFood));
+  const fuelTarget = colonyFuelTarget(state, ship);
   const keep: Partial<Record<GoodId, number>> = {
     parts: rules.colonizeParts,
     food: rules.colonizeFood,
@@ -414,6 +443,8 @@ export function foundColony(state: SimState, ship: Ship, world: World): CommandR
   if (house.credits < rules.colonizeCost) return fail("для колонии не хватает денег");
   destroyGoods(ship.cargo, state.accounts, "food", rules.colonizeFood);
   destroyGoods(ship.cargo, state.accounts, "parts", rules.colonizeParts);
+  drawSupply(ship, "food", rules.colonizeFood);
+  drawSupply(ship, "parts", rules.colonizeParts);
   moveCredits(state, { kind: "house", id: house.id }, { kind: "pop", worldId: world.id }, rules.colonizeCost);
   house.flow.construction += rules.colonizeCost;
   world.ownerId = house.id;

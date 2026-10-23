@@ -170,6 +170,31 @@ export function transformGoods(pile: Goods, accounts: Accounts, inputs: Partial<
   return true;
 }
 
+export function rememberSupply(ship: Ship, good: GoodId, houseId: string, qty: number): void {
+  if (qty <= 0 || !houseId) return;
+  const book = ship.supplyFrom[good] ?? {};
+  book[houseId] = (book[houseId] ?? 0) + qty;
+  ship.supplyFrom[good] = book;
+}
+
+export function drawSupply(ship: Ship, good: GoodId, qty: number): Array<{ houseId: string; qty: number }> {
+  const book = ship.supplyFrom[good] ?? {};
+  const slices: Array<{ houseId: string; qty: number }> = [];
+  let left = qty;
+  for (const houseId of Object.keys(book).sort()) {
+    if (left <= 0) break;
+    const have = book[houseId] ?? 0;
+    const take = Math.min(have, left);
+    if (take <= 0) continue;
+    book[houseId] = have - take;
+    if (book[houseId] <= 0) delete book[houseId];
+    slices.push({ houseId, qty: take });
+    left -= take;
+  }
+  ship.supplyFrom[good] = book;
+  return slices;
+}
+
 export function moveGoods(from: Goods, to: Goods, good: GoodId, amount: number): boolean {
   if (amount <= 0) return true;
   if (from[good] < amount) return false;

@@ -67,7 +67,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     .sort((a, b) => a.stock.food / Math.max(1, a.population) - b.stock.food / Math.max(1, b.population));
   for (const world of hungry) {
     const cover = foodCover(world.population, world.stock.food, state.rules.foodPer100);
-    if (!world.buildings.some((building) => building.kind === "mill" && building.remainingDays === 0) && world.stock.grain >= 20) {
+    if (!world.buildings.some((building) => building.kind === "mill") && world.stock.grain >= 20) {
       const command: Command = { type: "build", houseId: house.id, worldId: world.id, kind: "mill" };
       plans.push({ command, because: `${house.name} строит мельницу на «${world.name}»: еды на ${cover} дн., зерно уже есть.` });
       break;

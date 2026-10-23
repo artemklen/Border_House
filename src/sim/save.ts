@@ -70,6 +70,9 @@ function assertPlayable(state: SimState): void {
     if (!house.flow || typeof house.flow.wages !== "number" || !house.lastFlow || typeof house.lastFlow.wages !== "number") {
       throw new SaveError("Файл сохранения повреждён: у дома нет кассы.");
     }
+    if (!isMap(house.embargo) || !isMap(house.relation) || !isMap(house.tradeWith) || !isMap(house.lastTradeWith)) {
+      throw new SaveError("Файл сохранения повреждён: у дома нет отношений.");
+    }
     houseIds.add(house.id);
   }
   const worldIds = new Set<string>();
@@ -107,11 +110,30 @@ function assertPlayable(state: SimState): void {
     if (!(ship.classId in SHIP_CLASSES)) throw new SaveError("Файл сохранения повреждён: неизвестный класс корабля.");
     if (GOODS.some((good) => typeof ship.cargo[good] !== "number")) throw new SaveError("Файл сохранения повреждён: трюм корабля неполный.");
     if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
+    normalizeSupply(ship);
     if (ship.routeId && !routeIds.has(ship.routeId)) throw new SaveError("Файл сохранения повреждён: корабль ссылается на неизвестный маршрут.");
   }
   for (const person of state.people) {
     if (!person || typeof person.id !== "string" || !houseIds.has(person.houseId) || !Array.isArray(person.traits)) {
       throw new SaveError("Файл сохранения повреждён: человек без дома.");
+    }
+  }
+}
+
+function isMap(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeSupply(ship: SimState["ships"][number]): void {
+  for (const good of GOODS) {
+    const origin = ship.supplyFrom[good] as unknown;
+    if (typeof origin === "string") {
+      ship.supplyFrom[good] = origin ? { [origin]: ship.cargo[good] } : {};
+      continue;
+    }
+    if (origin == null) continue;
+    if (!isMap(origin) || Object.values(origin).some((qty) => typeof qty !== "number")) {
+      throw new SaveError("Файл сохранения повреждён: учёт груза повреждён.");
     }
   }
 }

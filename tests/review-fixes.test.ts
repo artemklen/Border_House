@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { planAi } from "../src/sim/ai";
 import { createClock, planFrame } from "../src/sim/clock";
 import { dispatch } from "../src/sim/commands";
-import { createGame, endowHouse, endowWorld, placeBuilding } from "../src/sim/create";
+import { createGame, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
 import { createExpansionScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
 import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
-import { colonyShip, keptOtherHouseId, keptShipId, keptWorldId } from "../src/sim/view";
+import { bottlenecks, colonyShip, keptOtherHouseId, keptShipId, keptWorldId } from "../src/sim/view";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -691,5 +691,147 @@ describe("замечания ревью", () => {
     const other = createLogisticsScenario();
     expect(keptShipId(other.ships, other.houses[0].id, ships[0].id)).toBe("");
     expect(keptOtherHouseId(other.houses, other.houses[0].id, "h-4")).toBe("");
+  });
+
+  it("дом без отношений не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const broken = JSON.parse(serialize(state)) as { state: { houses: Array<{ embargo?: unknown }> } };
+    delete broken.state.houses[0].embargo;
+    expect(() => deserialize(JSON.stringify(broken))).toThrow(SaveError);
+  });
+
+  it("замена маршрута в пути не пропускает первую новую остановку", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread" && item.classId === "freighter")!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "К Веге",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-vega", actions: [] },
+      ],
+    });
+    for (let day = 0; day < 8 && ship.status !== "transit"; day += 1) runTicks(state, 1);
+    expect(ship.toId).toBe("w-vega");
+    dispatch(state, {
+      type: "updateRoute",
+      routeId: ship.routeId!,
+      name: "За топливом",
+      stops: [
+        { worldId: "w-fuel", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    expect(ship.toId).toBe("w-vega");
+    expect(ship.stopIndex).toBe(0);
+    ship.distanceLeft = 1;
+    runTicks(state, 1);
+    expect(ship.toId).toBe("w-fuel");
+  });
+
+  it("смешанный груз выгружается по домам-источникам", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread" && item.classId === "freighter")!;
+    const bread = state.worlds.find((world) => world.id === "w-bread")!;
+    for (const building of bread.buildings) building.enabled = false;
+    state.accounts.goodsDestroyed.fuel += ship.cargo.fuel - 45;
+    ship.cargo.fuel = 45;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Чужая еда",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 20, price: 0, keep: 0 }] },
+        { worldId: "w-vega", actions: [{ good: "food", mode: "buy", amount: 1, price: 400, keep: 0 }] },
+        { worldId: "w-harbor", actions: [{ good: "food", mode: "unload", amount: 21, price: 0, keep: 0 }] },
+      ],
+    });
+    for (let day = 0; day < 40 && (state.worlds.find((world) => world.id === "w-harbor")?.imported[player.id]?.food ?? 0) < 20; day += 1) {
+      if (ship.status === "transit") ship.distanceLeft = 1;
+      runTicks(state, 1);
+    }
+    const harbor = state.worlds.find((world) => world.id === "w-harbor")!;
+    expect(harbor.imported[player.id]?.food).toBe(20);
+    expect(harbor.imported[vega.id]?.food).toBe(1);
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("недостроенная мельница не заказывается второй раз", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const field = state.worlds.find((world) => world.id === "w-orion-field")!;
+    field.stock.food = 0;
+    field.stock.grain = 40;
+    const mill = field.buildings.find((building) => building.kind === "mill")!;
+    mill.remainingDays = 4;
+    planAi(state);
+    expect(field.buildings.filter((building) => building.kind === "mill")).toHaveLength(1);
+  });
+
+  it("колония не переписывает общий торговый маршрут", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const first = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    const second = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-harbor")!;
+    second.worldId = "w-bread";
+    second.fromId = "w-bread";
+    second.tollWorldId = "w-bread";
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Торговля",
+      shipId: first.id,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "grain", mode: "load", amount: 8, price: 0, keep: 0 }] },
+        { worldId: "w-bay", actions: [] },
+      ],
+    });
+    dispatch(state, { type: "assignShip", shipId: second.id, routeId: first.routeId });
+    const tradeId = first.routeId;
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: first.id, worldId: "w-bay" });
+    expect(second.routeId).toBe(tradeId);
+    expect(first.routeId).not.toBe(tradeId);
+    const trade = state.routes.find((route) => route.id === tradeId)!;
+    expect(trade.stops[0].actions.some((action) => action.good === "food" && action.amount >= 30)).toBe(false);
+  });
+
+  it("баржа оставляет топливо на дальний колониальный перегон", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const bread = state.worlds.find((world) => world.id === "w-bread")!;
+    const barge = placeShip(state, player.id, bread, "barge", 60);
+    const result = dispatch(state, { type: "colonize", houseId: player.id, shipId: barge.id, worldId: "w-pier" });
+    expect(result.ok).toBe(true);
+    runTicks(state, 1);
+    expect(barge.status).toBe("transit");
+    expect(barge.toId).toBe("w-pier");
+  });
+
+  it("шканечный бот не получает колониальный приказ", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const skiff = state.ships.find((ship) => ship.houseId === player.id && ship.classId === "skiff")!;
+    const result = dispatch(state, { type: "colonize", houseId: player.id, shipId: skiff.id, worldId: "w-bay" });
+    expect(result.ok).toBe(false);
+    expect(skiff.mission).toBeNull();
+  });
+
+  it("колония из 70 человек видна в узких местах без еды", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const bay = state.worlds.find((world) => world.id === "w-bay")!;
+    bay.ownerId = player.id;
+    bay.population = 70;
+    bay.stock.food = 0;
+    expect(bottlenecks(state, player.id).some((item) => item.title.startsWith(bay.name))).toBe(true);
   });
 });
