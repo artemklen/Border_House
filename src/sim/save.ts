@@ -97,6 +97,7 @@ function assertPlayable(state: SimState): void {
     if (!house.flow || !house.lastFlow || flowKeys.some((key) => typeof house.flow[key] !== "number" || typeof house.lastFlow[key] !== "number")) {
       throw new SaveError("Файл сохранения повреждён: у дома нет кассы.");
     }
+    if (typeof house.name !== "string" || typeof house.crest !== "string") throw new SaveError("Файл сохранения повреждён: у дома нет имени.");
     if (!isMap(house.embargo) || !isMap(house.relation) || !isMap(house.tradeWith) || !isMap(house.lastTradeWith)) {
       throw new SaveError("Файл сохранения повреждён: у дома нет отношений.");
     }
@@ -117,6 +118,7 @@ function assertPlayable(state: SimState): void {
     requireGoods(world.lastDemand, "прошлый спрос");
     requireGoods(world.lastProduced, "прошлый выпуск");
     if (!isMap(world.lastImported)) throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
+    if (typeof world.name !== "string" || typeof world.specialty !== "string") throw new SaveError("Файл сохранения повреждён: у мира нет имени.");
     if (typeof world.x !== "number" || typeof world.y !== "number" || !Number.isFinite(world.x) || !Number.isFinite(world.y)) {
       throw new SaveError("Файл сохранения повреждён: у мира нет координат.");
     }
@@ -127,6 +129,7 @@ function assertPlayable(state: SimState): void {
     if (world.ownerId && !houseIds.has(world.ownerId)) throw new SaveError("Файл сохранения повреждён: мир ссылается на неизвестный дом.");
     for (const building of world.buildings) {
       if (!building || typeof building.kind !== "string" || !Object.hasOwn(RECIPES, building.kind)) throw new SaveError("Файл сохранения повреждён: неизвестное предприятие.");
+      if (building.stopReason != null && typeof building.stopReason !== "string") throw new SaveError("Файл сохранения повреждён: у предприятия нет подписи.");
     }
     worldIds.add(world.id);
   }
@@ -151,6 +154,7 @@ function assertPlayable(state: SimState): void {
   for (const ship of state.ships) {
     if (!ship || typeof ship.id !== "string" || !ship.cargo || !houseIds.has(ship.houseId)) throw new SaveError("Файл сохранения повреждён: корабль без трюма.");
     if (typeof ship.classId !== "string" || !Object.hasOwn(SHIP_CLASSES, ship.classId)) throw new SaveError("Файл сохранения повреждён: неизвестный класс корабля.");
+    if (typeof ship.name !== "string") throw new SaveError("Файл сохранения повреждён: у корабля нет имени.");
     if (GOODS.some((good) => typeof ship.cargo[good] !== "number")) throw new SaveError("Файл сохранения повреждён: трюм корабля неполный.");
     if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
     normalizeSupply(ship);
@@ -161,7 +165,7 @@ function assertPlayable(state: SimState): void {
     if (!treaty || typeof treaty.status !== "string" || typeof treaty.kind !== "string" || typeof treaty.proposerId !== "string" || typeof treaty.targetId !== "string") {
       throw new SaveError("Файл сохранения повреждён: договор повреждён.");
     }
-    if (typeof treaty.windowDays !== "number" || typeof treaty.endTick !== "number" || typeof treaty.delivered !== "number" || typeof treaty.qtyPerWindow !== "number") {
+    if (typeof treaty.windowDays !== "number" || typeof treaty.endTick !== "number" || typeof treaty.delivered !== "number" || typeof treaty.qtyPerWindow !== "number" || typeof treaty.note !== "string") {
       throw new SaveError("Файл сохранения повреждён: договор повреждён.");
     }
   }
@@ -171,7 +175,7 @@ function assertPlayable(state: SimState): void {
     }
   }
   for (const person of state.people) {
-    if (!person || typeof person.id !== "string" || !houseIds.has(person.houseId) || !Array.isArray(person.traits) || typeof person.ageDays !== "number") {
+    if (!person || typeof person.id !== "string" || typeof person.name !== "string" || !houseIds.has(person.houseId) || !Array.isArray(person.traits) || typeof person.ageDays !== "number") {
       throw new SaveError("Файл сохранения повреждён: человек без дома.");
     }
   }

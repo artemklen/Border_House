@@ -312,9 +312,9 @@ function stockSource(state: SimState, house: House, dest: World, good: GoodId): 
 function linked(state: SimState, houseId: string, a: string, b: string, good: GoodId): boolean {
   return state.routes.some((route) => {
     if (route.houseId !== houseId || route.paused) return false;
-    const worlds = route.stops.map((stop) => stop.worldId);
-    const mentions = route.stops.some((stop) => stop.actions.some((action) => action.good === good));
-    return mentions && worlds.includes(a) && worlds.includes(b);
+    if (!state.ships.some((ship) => ship.routeId === route.id)) return false;
+    const delivers = route.stops.some((stop) => stop.worldId === b && stop.actions.some((action) => action.good === good && (action.mode === "unload" || action.mode === "sell")));
+    return delivers && route.stops.some((stop) => stop.worldId === a);
   });
 }
 

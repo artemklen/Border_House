@@ -464,6 +464,10 @@ export function foundColony(state: SimState, ship: Ship, world: World): CommandR
   world.tariffBps = 150;
   world.specialty = "молодая колония";
   world.governorId = null;
+  const route = routeOf(state, ship.routeId);
+  if (route && route.name.startsWith("Колония ") && state.ships.every((other) => other.id === ship.id || other.routeId !== route.id)) {
+    state.routes = state.routes.filter((item) => item.id !== route.id);
+  }
   ship.mission = null;
   ship.routeId = null;
   ship.tollWorldId = world.id;

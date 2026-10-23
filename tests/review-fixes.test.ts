@@ -1499,4 +1499,29 @@ describe("замечания ревью", () => {
     const loaded = deserialize(JSON.stringify(raw));
     expect(() => runTicks(loaded, 1)).not.toThrow();
   });
+
+  it("имя мира объектом не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const world = JSON.parse(serialize(state)) as { state: { worlds: Array<{ name: unknown }> } };
+    world.state.worlds[0].name = {};
+    expect(() => deserialize(JSON.stringify(world))).toThrow(SaveError);
+    const house = JSON.parse(serialize(state)) as { state: { houses: Array<{ name: unknown }> } };
+    house.state.houses[0].name = {};
+    expect(() => deserialize(JSON.stringify(house))).toThrow(SaveError);
+    const person = JSON.parse(serialize(state)) as { state: { people: Array<{ name: unknown }> } };
+    person.state.people[0].name = {};
+    expect(() => deserialize(JSON.stringify(person))).toThrow(SaveError);
+  });
+
+  it("после основания колонии брошенный рейс не заменяет поставку еды", () => {
+    const state = createExpansionScenario();
+    const ai = state.houses.find((house) => house.profile === "expansionist")!;
+    const colony = state.worlds.find((world) => world.id === "e-free")!;
+    for (let day = 0; day < 12 && !colony.ownerId; day += 1) runTicks(state, 1);
+    expect(colony.ownerId).toBe(ai.id);
+    expect(state.routes.some((route) => route.name.startsWith("Колония ") && !state.ships.some((ship) => ship.routeId === route.id))).toBe(false);
+    for (let day = 0; day < 24 && colony.stock.food === 0; day += 1) runTicks(state, 1);
+    expect(colony.stock.food).toBeGreaterThan(0);
+    expect(audit(state).ok).toBe(true);
+  });
 });
