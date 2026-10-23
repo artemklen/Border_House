@@ -93,6 +93,9 @@ function assertPlayable(state: SimState): void {
     requireGoods(world.demand, "спрос");
     requireGoods(world.deposits, "месторождения");
     requireGoods(world.produced, "производство");
+    requireGoods(world.lastDemand, "прошлый спрос");
+    requireGoods(world.lastProduced, "прошлый выпуск");
+    if (!isMap(world.lastImported)) throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
     if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.popWallet !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number") {
       throw new SaveError("Файл сохранения повреждён: население или кошелёк мира нечисловые.");
     }
@@ -110,6 +113,11 @@ function assertPlayable(state: SimState): void {
     }
     for (const stop of route.stops) {
       if (!stop || !worldIds.has(stop.worldId) || !Array.isArray(stop.actions)) throw new SaveError("Файл сохранения повреждён: остановка маршрута неизвестна.");
+      for (const action of stop.actions) {
+        if (!action || typeof action.good !== "string" || typeof action.mode !== "string" || typeof action.amount !== "number" || typeof action.price !== "number" || typeof action.keep !== "number") {
+          throw new SaveError("Файл сохранения повреждён: действие остановки повреждено.");
+        }
+      }
     }
     routeIds.add(route.id);
   }

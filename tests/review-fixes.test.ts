@@ -901,4 +901,78 @@ describe("замечания ревью", () => {
     const rival = state.ships.find((ship) => ship.houseId !== player.id)!;
     expect(fleetPickId(rival, player.id)).toBeNull();
   });
+
+  it("пустая строка действия или пропавший импорт не подменяют партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Пустой",
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    const broken = JSON.parse(serialize(state)) as { state: { routes: Array<{ stops: Array<{ actions: unknown[] }> }> } };
+    broken.state.routes[0].stops[0].actions = [null];
+    expect(() => deserialize(JSON.stringify(broken))).toThrow(SaveError);
+    const noImport = JSON.parse(serialize(state)) as { state: { worlds: Array<{ lastImported?: unknown }> } };
+    noImport.state.worlds[0].lastImported = null;
+    expect(() => deserialize(JSON.stringify(noImport))).toThrow(SaveError);
+  });
+
+  it("правка маршрута в пути сбрасывает уже учтённую стоянку", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "К Веге",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "fuel", mode: "load", amount: 4, price: 0, keep: 0 }] },
+        { worldId: "w-vega", actions: [] },
+      ],
+    });
+    for (let day = 0; day < 6 && ship.status !== "transit"; day += 1) runTicks(state, 1);
+    ship.visitKey = "w-bread:0:" + ship.routeId;
+    ship.visitMoved = [4];
+    dispatch(state, {
+      type: "updateRoute",
+      routeId: ship.routeId!,
+      name: "Обратно за топливом",
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "fuel", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    expect(ship.visitKey).toBe("");
+    expect(ship.visitMoved).toEqual([]);
+    expect(ship.toId).toBe("w-vega");
+  });
+
+  it("маршрут на строящийся корабль не остаётся в списке", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id)!;
+    ship.status = "building";
+    const routes = state.routes.length;
+    const notes = state.journal.length;
+    const result = dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Рано",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-bread", actions: [] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    expect(state.routes).toHaveLength(routes);
+    expect(state.journal).toHaveLength(notes);
+  });
 });

@@ -160,6 +160,12 @@ function createRoute(state: SimState, houseId: string, name: string, stops: Rout
   if (!house) return fail("дом не найден");
   const checked = validateStops(state, stops);
   if (!checked.ok) return checked;
+  if (shipId) {
+    const ship = shipOf(state, shipId);
+    if (!ship) return fail("корабль не найден");
+    if (ship.status === "building") return fail("корабль ещё строится");
+    if (ship.houseId !== houseId) return fail("чужой корабль");
+  }
   const route = {
     id: serial(state, "r"),
     houseId,
@@ -192,12 +198,9 @@ function updateRoute(state: SimState, routeId: string, name: string, stops: Rout
   route.name = name.trim() || route.name;
   for (const ship of state.ships) {
     if (ship.routeId !== route.id) continue;
-    if (ship.status === "transit") {
-      ship.stopIndex = 0;
-      continue;
-    }
     ship.visitKey = "";
     ship.visitMoved = [];
+    if (ship.status === "transit") ship.stopIndex = 0;
   }
   note(
     state,
