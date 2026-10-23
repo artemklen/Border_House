@@ -130,7 +130,13 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
 
   const dry = byId(state.ships).find((ship) => {
     if (ship.houseId !== house.id || !ship.stopReason?.includes("топлив") || !ship.worldId || ship.status === "transit") return false;
-    return !state.routes.some((route) => route.id === ship.routeId && route.autoFuel);
+    const route = state.routes.find((item) => item.id === ship.routeId && item.autoFuel);
+    if (!route) return true;
+    const here = worldOf(state, ship.worldId);
+    if (!here) return true;
+    const owner = here.ownerId ? houseOf(state, here.ownerId) : undefined;
+    const open = !here.ownerId || here.ownerId === house.id || owner?.embargo[house.id] !== true;
+    return !(open && here.stock.fuel > 0);
   });
   const refuelName = dry ? `Заправка ${dry.name}` : "";
   const alreadyRefueling = dry ? state.routes.some((route) => route.houseId === house.id && route.name === refuelName) : false;
@@ -155,6 +161,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
           houseId: house.id,
           name: refuelName,
           shipId: dry.id,
+          returnRouteId: state.routes.find((route) => route.id === dry.routeId && route.autoFuel)?.id,
           stops: [
             {
               worldId: here.id,

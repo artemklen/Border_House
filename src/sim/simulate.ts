@@ -1,5 +1,5 @@
 import { foodRouteNeedsFuel, planAi, refreshFoodFuel } from "./ai";
-import { foundColony, syncColonyRoute } from "./commands";
+import { dispatch, foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
 import {
@@ -274,6 +274,13 @@ function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
   }
   if (hold || stuck) return;
   const routeNow = routeOf(state, ship.routeId);
+  if (routeNow?.returnRouteId && routeOf(state, routeNow.returnRouteId)) {
+    const fueled = routeNow.stops.some((stop) => stop.worldId === world.id && stop.actions.some((action) => action.good === "fuel" && (action.mode === "load" || action.mode === "buy")));
+    if (fueled && ship.cargo.fuel >= 20) {
+      dispatch(state, { type: "assignShip", shipId: ship.id, routeId: routeNow.returnRouteId });
+      return;
+    }
+  }
   if (routeNow && foodRouteNeedsFuel(state, ship, routeNow)) {
     block(ship, "нет топлива на следующий перегон");
     return;

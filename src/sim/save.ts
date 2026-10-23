@@ -170,7 +170,7 @@ function assertPlayable(state: SimState): void {
     if (!treaty || typeof treaty.status !== "string" || typeof treaty.kind !== "string" || typeof treaty.proposerId !== "string" || typeof treaty.targetId !== "string") {
       throw new SaveError("Файл сохранения повреждён: договор повреждён.");
     }
-    if (typeof treaty.windowDays !== "number" || typeof treaty.endTick !== "number" || typeof treaty.delivered !== "number" || typeof treaty.qtyPerWindow !== "number" || typeof treaty.note !== "string") {
+    if (typeof treaty.windowDays !== "number" || typeof treaty.endTick !== "number" || typeof treaty.delivered !== "number" || typeof treaty.qtyPerWindow !== "number" || typeof treaty.note !== "string" || !requireInt(treaty.tariffBps, 0, 2500)) {
       throw new SaveError("Файл сохранения повреждён: договор повреждён.");
     }
   }

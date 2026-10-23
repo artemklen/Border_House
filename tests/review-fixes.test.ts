@@ -1702,4 +1702,35 @@ describe("замечания ревью", () => {
     raw.state.routes[0].revenue = {};
     expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
   });
+
+  it("рейс за едой ищет другое топливо, если порт пуст", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    runTicks(state, 45);
+    const cliff = state.worlds.find((world) => world.id === "w-fuel")!;
+    for (const name of ["Дом Вега", "Дом Орион"]) {
+      const house = state.houses.find((item) => item.name === name)!;
+      const ship = state.ships.find((item) => item.houseId === house.id && item.classId === "freighter")!;
+      const stuck = ship.worldId === "w-bread" && ship.stopReason?.includes("топлив");
+      expect(stuck && cliff.stock.fuel > 30).toBe(false);
+    }
+  });
+
+  it("договор без пошлины не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    const other = state.houses.find((house) => !house.player)!;
+    dispatch(state, {
+      type: "proposeTreaty",
+      houseId: player.id,
+      otherId: other.id,
+      kind: "transit",
+      tariffBps: 300,
+      good: "food",
+      qtyPerWindow: 0,
+      duration: 24,
+    });
+    const raw = JSON.parse(serialize(state)) as { state: { treaties: Array<{ tariffBps?: number }> } };
+    delete raw.state.treaties[0].tariffBps;
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
 });
