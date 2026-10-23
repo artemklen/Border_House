@@ -1,5 +1,5 @@
 import { planAi } from "./ai";
-import { foundColony } from "./commands";
+import { foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
 import {
@@ -194,6 +194,8 @@ function sail(state: SimState): void {
     if (ship.status === "transit") {
       const shipClass = SHIP_CLASSES[ship.classId];
       const step = Math.min(shipClass.speed, ship.distanceLeft);
+      const arriving = ship.distanceLeft - step <= 0;
+      if (!arriving) payUpkeep(state, ship);
       ship.distanceLeft -= step;
       ship.traveled += step;
       if (ship.distanceLeft <= 0) {
@@ -204,11 +206,13 @@ function sail(state: SimState): void {
         ship.stopReason = null;
         const route = routeOf(state, ship.routeId);
         if (route && ship.worldId) {
-          const index = route.stops.findIndex((stop) => stop.worldId === ship.worldId);
-          if (index >= 0) ship.stopIndex = index;
+          const planned = route.stops[ship.stopIndex];
+          if (!planned || planned.worldId !== ship.worldId) {
+            const index = route.stops.findIndex((stop) => stop.worldId === ship.worldId);
+            if (index >= 0) ship.stopIndex = index;
+          }
         }
       } else {
-        ship.stopReason = null;
         continue;
       }
     }
@@ -225,23 +229,42 @@ function handleDock(state: SimState, ship: Ship): void {
     return;
   }
   if (!clearToll(state, ship, world)) return;
-  const route = routeOf(state, ship.routeId);
-  if (route) applyStop(state, ship, world, route);
-  if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id && !world.ownerId) {
-    const founded = foundColony(state, ship, world);
-    if (!founded.ok) block(ship, founded.reason);
-  }
-  const shipClass = SHIP_CLASSES[ship.classId];
-  if (!sinkCredits(state, { kind: "house", id: ship.houseId }, shipClass.upkeep)) {
-    block(ship, "нет денег на содержание корабля");
-    return;
-  }
-  houseOf(state, ship.houseId)!.flow.upkeep += shipClass.upkeep;
-  if (route?.paused) {
+  if (ship.mission?.type === "colonize" && ship.mission.worldId !== world.id) syncColonyRoute(state, ship);
+  const activeRoute = routeOf(state, ship.routeId);
+  if (activeRoute?.paused) {
+    if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id && !world.ownerId) {
+      const founded = foundColony(state, ship, world);
+      if (!founded.ok) block(ship, founded.reason);
+    }
+    if (!payUpkeep(state, ship)) {
+      block(ship, "нет денег на содержание корабля");
+      return;
+    }
     ship.stopReason = "маршрут на паузе";
     return;
   }
-  if (route) depart(state, ship, route);
+  const hold = activeRoute ? applyStop(state, ship, world, activeRoute) : false;
+  let stuck = false;
+  if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id && !world.ownerId) {
+    const founded = foundColony(state, ship, world);
+    if (!founded.ok) {
+      block(ship, founded.reason);
+      stuck = true;
+    }
+  }
+  if (!payUpkeep(state, ship)) {
+    block(ship, "нет денег на содержание корабля");
+    return;
+  }
+  if (hold || stuck) return;
+  if (activeRoute) depart(state, ship, activeRoute);
+}
+
+function payUpkeep(state: SimState, ship: Ship): boolean {
+  const amount = SHIP_CLASSES[ship.classId].upkeep;
+  if (!sinkCredits(state, { kind: "house", id: ship.houseId }, amount)) return false;
+  houseOf(state, ship.houseId)!.flow.upkeep += amount;
+  return true;
 }
 
 function clearToll(state: SimState, ship: Ship, world: World): boolean {
@@ -272,13 +295,15 @@ function clearToll(state: SimState, ship: Ship, world: World): boolean {
   return true;
 }
 
-function applyStop(state: SimState, ship: Ship, world: World, route: Route): void {
-  const stop = route.stops.find((item) => item.worldId === world.id);
+function applyStop(state: SimState, ship: Ship, world: World, route: Route): boolean {
+  const planned = route.stops[ship.stopIndex];
+  const stop = planned && planned.worldId === world.id ? planned : route.stops.find((item) => item.worldId === world.id);
+  let hold = false;
   if (!stop) {
     if (!route.stops.some((item) => item.worldId === world.id)) {
       ship.stopReason = "маршрут изменён, корабль завершил текущий перегон";
     }
-    return;
+    return false;
   }
   for (const action of stop.actions) {
     const roomCargo = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
@@ -302,7 +327,10 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): voi
         continue;
       }
       const qty = Math.min(action.amount, Math.max(0, ship.cargo[action.good] - action.keep), roomStock);
-      if (qty < Math.min(action.amount, ship.cargo[action.good]) && roomStock <= qty) ship.stopReason = "склад заполнен";
+      if (qty < Math.min(action.amount, ship.cargo[action.good]) && roomStock <= qty) {
+        ship.stopReason = "склад заполнен";
+        hold = true;
+      }
       if (qty > 0) {
         moveGoods(ship.cargo, world.stock, action.good, qty);
         const originHouse = ship.supplyFrom[action.good];
@@ -311,7 +339,10 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): voi
           world.imported[originHouse][action.good] += qty;
           countDelivery(state, originHouse, world, action.good, qty);
         }
-      } else if (ship.cargo[action.good] > action.keep) ship.stopReason = "склад заполнен";
+      } else if (ship.cargo[action.good] > action.keep) {
+        ship.stopReason = "склад заполнен";
+        hold = true;
+      }
       continue;
     }
     if (!world.ownerId || world.ownerId === ship.houseId) {
@@ -323,10 +354,12 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): voi
     const buyerHouse = action.mode === "sell" ? world.ownerId : ship.houseId;
     if (action.mode === "sell" && price < action.price) {
       ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
+      hold = true;
       continue;
     }
     if (action.mode === "buy" && price > action.price) {
       ship.stopReason = `цена ${goodLabel(action.good)} ${price} выше предела ${action.price}`;
+      hold = true;
       continue;
     }
     const sellerPile = action.mode === "sell" ? ship.cargo : world.stock;
@@ -341,8 +374,13 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): voi
     const qty = Math.min(action.amount, available, room, affordable);
     if (qty <= 0) {
       if (available <= 0) ship.stopReason = `нет товара с учётом резерва: ${goodLabel(action.good)}`;
-      else if (affordable <= 0) ship.stopReason = "у покупателя нет денег";
-      else ship.stopReason = "нет места под груз или на складе";
+      else if (affordable <= 0) {
+        ship.stopReason = "у покупателя нет денег";
+        hold = true;
+      } else {
+        ship.stopReason = "нет места под груз или на складе";
+        hold = true;
+      }
       continue;
     }
     moveGoods(sellerPile, buyerPile, action.good, qty);
@@ -357,6 +395,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): voi
     else route.cost += qty * price;
     countDelivery(state, sellerHouse, world, action.good, qty);
   }
+  return hold;
 }
 
 function countDelivery(state: SimState, sellerId: string, world: World, good: GoodId, qty: number): void {
@@ -376,9 +415,19 @@ function depart(state: SimState, ship: Ship, route: Route): void {
     ship.stopReason = "в маршруте меньше двух остановок";
     return;
   }
-  const here = route.stops.findIndex((stop) => stop.worldId === ship.worldId);
+  if (ship.mission?.type === "colonize" && ship.worldId !== ship.mission.worldId) {
+    if (ship.cargo.parts < state.rules.colonizeParts || ship.cargo.food < state.rules.colonizeFood) {
+      ship.stopReason = "колониальный набор ещё не в трюме";
+      return;
+    }
+  }
+  const planned = route.stops[ship.stopIndex];
+  const here = planned && planned.worldId === ship.worldId
+    ? ship.stopIndex
+    : route.stops.findIndex((stop) => stop.worldId === ship.worldId);
   const index = here >= 0 ? here : ship.stopIndex;
-  const next = route.stops[(index + 1) % route.stops.length];
+  const nextIndex = (index + 1) % route.stops.length;
+  const next = route.stops[nextIndex];
   const origin = worldOf(state, ship.worldId);
   const dest = worldOf(state, next.worldId);
   if (!origin || !dest) return;
@@ -427,7 +476,7 @@ function depart(state: SimState, ship: Ship, route: Route): void {
   ship.legDistance = dist;
   ship.distanceLeft = dist;
   ship.worldId = null;
-  ship.stopIndex = index;
+  ship.stopIndex = nextIndex;
   ship.stopReason = null;
 }
 
@@ -527,8 +576,8 @@ function passHouse(state: SimState, head: Person): void {
   const governor = living
     .filter((person) => person.role === "governor")
     .sort((a, b) => b.loyalty - a.loyalty || (a.id < b.id ? -1 : 1))[0];
-  let next = heir ?? kin ?? governor;
-  let how = heir ? "наследник" : kin ? "старший из родни" : governor ? "губернатор с наибольшей лояльностью: прямого наследника нет" : "";
+  let next = heir ?? governor ?? kin;
+  let how = heir ? "наследник" : governor ? "губернатор с наибольшей лояльностью: прямого наследника нет" : kin ? "старшая родня" : "";
   if (!next) {
     const rolled = rollInt(state.rngState, 1);
     state.rngState = rolled.state;

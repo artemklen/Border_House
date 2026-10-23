@@ -151,6 +151,11 @@ export function hintLines(state: SimState): string[] {
   return tips.slice(0, 3);
 }
 
+export function keptWorldId(worlds: Array<{ id: string }>, current: string): string {
+  if (worlds.some((world) => world.id === current)) return current;
+  return worlds[0]?.id ?? "";
+}
+
 export function worldOwnerName(state: SimState, world: World): string {
   return houseOf(state, world.ownerId ?? "")?.name ?? "ничей";
 }

@@ -238,7 +238,7 @@ export interface SimState {
 
 export type Command =
   | { type: "build"; houseId: string; worldId: string; kind: BuildingKind }
-  | { type: "toggleBuilding"; buildingId: string; enabled: boolean }
+  | { type: "toggleBuilding"; houseId: string; buildingId: string; enabled: boolean }
   | { type: "buildShip"; houseId: string; worldId: string; classId: ShipClassId }
   | { type: "createRoute"; houseId: string; name: string; stops: RouteStop[]; shipId?: string }
   | { type: "updateRoute"; routeId: string; name: string; stops: RouteStop[] }

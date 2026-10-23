@@ -20,7 +20,7 @@ export function dispatch(state: SimState, command: Command): CommandResult {
     case "build":
       return build(state, command);
     case "toggleBuilding":
-      return toggleBuilding(state, command.buildingId, command.enabled);
+      return toggleBuilding(state, command.houseId, command.buildingId, command.enabled);
     case "buildShip":
       return buildShip(state, command);
     case "createRoute":
@@ -89,9 +89,10 @@ function build(state: SimState, command: Extract<Command, { type: "build" }>): C
   return ok(`стройка займёт ${recipe.days} дн.`);
 }
 
-function toggleBuilding(state: SimState, buildingId: string, enabled: boolean): CommandResult {
+function toggleBuilding(state: SimState, houseId: string, buildingId: string, enabled: boolean): CommandResult {
   const building = buildingOf(state, buildingId);
   if (!building) return fail("предприятие не найдено");
+  if (building.ownerId !== houseId) return fail("чужое предприятие");
   building.enabled = enabled;
   building.stopReason = enabled ? null : "остановлено владельцем";
   note(state, building.ownerId, `${enabled ? "Запущено" : "Остановлено"} предприятие ${RECIPES[building.kind].name}.`);
@@ -239,6 +240,7 @@ function setEmbargo(state: SimState, houseId: string, otherId: string, embargo: 
   const house = houseOf(state, houseId);
   const other = houseOf(state, otherId);
   if (!house || !other || house.id === other.id) return fail("нужны два разных дома");
+  if (Boolean(house.embargo[other.id]) === embargo) return ok(embargo ? "доступ уже закрыт" : "доступ уже открыт");
   house.embargo[other.id] = embargo;
   shiftRelation(state, house.id, other.id, embargo ? -8 : 2);
   note(
@@ -326,29 +328,65 @@ function colonize(state: SimState, houseId: string, shipId: string, worldId: str
   if (ship.status === "building") return fail("корабль ещё строится");
   if (target.ownerId) return fail("мир уже принадлежит дому");
   ship.mission = { type: "colonize", worldId: target.id };
-  if (ship.status !== "transit" && ship.worldId && ship.worldId !== target.id) {
-    const origin = ship.worldId;
-    const stops: RouteStop[] = [
-      {
-        worldId: origin,
-        actions: [
-          { good: "parts", mode: "load", amount: state.rules.colonizeParts, price: 0, keep: 0 },
-          { good: "food", mode: "load", amount: state.rules.colonizeFood, price: 0, keep: 0 },
-          { good: "fuel", mode: "load", amount: 24, price: 0, keep: 8 },
-        ],
-      },
-      { worldId: target.id, actions: [] },
-    ];
-    const created = createRoute(state, house.id, `Колония ${target.name}`, stops, ship.id);
-    if (!created.ok) return created;
-  }
   note(
     state,
     house.id,
     `Колонизация «${target.name}»: нужны ${state.rules.colonizeFood} продовольствия, ${state.rules.colonizeParts} комплектующих и ${state.rules.colonizeCost} кредитов по прибытии. Мир не начнёт приносить доход сам.`,
   );
-  if (ship.worldId === target.id && ship.status !== "transit") return foundColony(state, ship, target);
+  if (ship.status === "transit") return ok("текущий перегон сохранится, колониальный маршрут начнётся по прибытии");
+  if (ship.worldId === target.id) return foundColony(state, ship, target);
+  const prepared = syncColonyRoute(state, ship);
+  if (!prepared.ok) return prepared;
   return ok("корабль везёт колониальный набор");
+}
+
+/** Подгоняет маршрут колонии под текущий трюм: лишнее сгружается, недостающее добирается, топливо оставляет место под набор. */
+export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
+  if (ship.mission?.type !== "colonize" || !ship.worldId || ship.worldId === ship.mission.worldId) return ok();
+  const target = worldOf(state, ship.mission.worldId);
+  const house = houseOf(state, ship.houseId);
+  if (!target || !house) return fail("нет цели колонии");
+  let route = routeOf(state, ship.routeId);
+  const aimed = route?.stops[0]?.worldId === ship.worldId && route.stops.some((stop) => stop.worldId === target.id);
+  if (!route || !aimed) {
+    const created = createRoute(
+      state,
+      house.id,
+      `Колония ${target.name}`,
+      [
+        { worldId: ship.worldId, actions: colonyLoadActions(state, ship) },
+        { worldId: target.id, actions: [] },
+      ],
+      ship.id,
+    );
+    if (!created.ok) return created;
+    route = routeOf(state, ship.routeId);
+  }
+  const origin = route?.stops.find((stop) => stop.worldId === ship.worldId);
+  if (origin) origin.actions = colonyLoadActions(state, ship);
+  return ok();
+}
+
+function colonyLoadActions(state: SimState, ship: Ship): RouteStop["actions"] {
+  const rules = state.rules;
+  const capacity = SHIP_CLASSES[ship.classId].capacity;
+  const fuelTarget = Math.max(0, Math.min(24, capacity - rules.colonizeParts - rules.colonizeFood));
+  const keep: Partial<Record<GoodId, number>> = {
+    parts: rules.colonizeParts,
+    food: rules.colonizeFood,
+    fuel: fuelTarget,
+  };
+  const actions: RouteStop["actions"] = [];
+  for (const good of GOODS) {
+    const needed = keep[good] ?? 0;
+    const have = ship.cargo[good];
+    if (have > needed) actions.push({ good, mode: "unload", amount: have - needed, price: 0, keep: needed });
+  }
+  for (const good of ["parts", "food", "fuel"] as const) {
+    const needed = keep[good] ?? 0;
+    if (ship.cargo[good] < needed) actions.push({ good, mode: "load", amount: needed - ship.cargo[good], price: 0, keep: 0 });
+  }
+  return actions;
 }
 
 export function foundColony(state: SimState, ship: Ship, world: World): CommandResult {
@@ -390,6 +428,10 @@ function appointGovernor(state: SimState, houseId: string, worldId: string, pers
       previous.role = previous.role === "governor" ? "kin" : previous.role;
       previous.worldId = null;
     }
+  }
+  if (person.worldId && person.worldId !== world.id) {
+    const previousWorld = worldOf(state, person.worldId);
+    if (previousWorld && previousWorld.governorId === person.id) previousWorld.governorId = null;
   }
   person.role = "governor";
   person.worldId = world.id;

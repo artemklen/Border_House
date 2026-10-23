@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createClock, takeTicks, type SpeedId } from "../sim/clock";
+import { createClock, planFrame, type SpeedId } from "../sim/clock";
 import { dispatch, planBuild, planShip, treatyText } from "../sim/commands";
 import { RECIPES, SHIP_CLASSES } from "../sim/config";
 import { createGame } from "../sim/create";
@@ -18,6 +18,7 @@ import {
   formatDay,
   governorBlurb,
   hintLines,
+  keptWorldId,
   worldOwnerName,
 } from "../sim/view";
 import { drawMap, unproject, type Camera } from "./drawMap";
@@ -81,14 +82,14 @@ export function App() {
     let frame = 0;
     let last = performance.now();
     const loop = (now: number) => {
-      const dt = Math.min(0.1, (now - last) / 1000);
+      const dt = (now - last) / 1000;
       last = now;
       const current = simRef.current;
       if (current) {
-        const steps = takeTicks(clockRef.current, dt, 24);
-        if (steps > 0) {
-          for (let index = 0; index < steps; index += 1) tick(current);
-          if (current.tick % 12 === 0) localStorage.setItem(AUTOSAVE_KEY, serialize(current));
+        const plan = planFrame(clockRef.current, dt, current.tick, 24);
+        if (plan.steps > 0) {
+          for (let index = 0; index < plan.steps; index += 1) tick(current);
+          if (plan.autosave) localStorage.setItem(AUTOSAVE_KEY, serialize(current));
           setSim({ ...current });
         }
         const canvas = canvasRef.current;
@@ -135,6 +136,8 @@ export function App() {
     setSelected({ kind: "world", id: next.worlds[0]?.id ?? "" });
     setTab("world");
     setMessage("Партия на паузе. Пробел продолжает время. Подсказки снизу не блокируют приказы.");
+    setStopWorld(keptWorldId(next.worlds, ""));
+    setDraftStops([]);
     cameraRef.current = { x: 560, y: 380, zoom: 0.68 };
   }
 
@@ -312,7 +315,7 @@ export function App() {
                       if (!plan.ok) setMessage(plan.reason);
                       else setConfirm({ title: `Заложить ${SHIP_CLASSES[classId].name}`, lines: plan.lines, run: () => act({ type: "buildShip", houseId: player.id, worldId, classId }) });
                     }}
-                    onToggle={(buildingId, enabled) => act({ type: "toggleBuilding", buildingId, enabled })}
+                    onToggle={(buildingId, enabled) => act({ type: "toggleBuilding", houseId: player.id, buildingId, enabled })}
                     onWhy={(buildingId) => setMessage(explainBuilding(sim, buildingId))}
                   />
                 ) : null}
@@ -536,25 +539,32 @@ function BuildPanel(props: {
   onWhy: (buildingId: string) => void;
 }) {
   const world = worldOf(props.sim, props.worldId);
+  const owned = world?.ownerId === props.houseId;
   return (
     <>
-      <p>Стройка только в своём мире. Комплектующие списываются со склада этого мира, деньги уходят местным жителям.</p>
-      <div className="row">
-        {(Object.keys(RECIPES) as Array<keyof typeof RECIPES>).map((kind) => (
-          <button key={kind} onClick={() => props.onPreview(kind)}>{RECIPES[kind].name}: {RECIPES[kind].parts} компл., {RECIPES[kind].credits} кред., {RECIPES[kind].days} дн.</button>
-        ))}
-      </div>
-      <div className="row">
-        {(Object.keys(SHIP_CLASSES) as Array<keyof typeof SHIP_CLASSES>).map((classId) => (
-          <button key={classId} onClick={() => props.onShip(classId)}>Корабль «{SHIP_CLASSES[classId].name}»</button>
-        ))}
-      </div>
+      <p>{owned ? "Стройка только в своём мире. Комплектующие списываются со склада этого мира, деньги уходят местным жителям." : "Чужой мир: предприятия можно смотреть, но не переключать и не строить."}</p>
+      {owned ? (
+        <>
+          <div className="row">
+            {(Object.keys(RECIPES) as Array<keyof typeof RECIPES>).map((kind) => (
+              <button key={kind} onClick={() => props.onPreview(kind)}>{RECIPES[kind].name}: {RECIPES[kind].parts} компл., {RECIPES[kind].credits} кред., {RECIPES[kind].days} дн.</button>
+            ))}
+          </div>
+          <div className="row">
+            {(Object.keys(SHIP_CLASSES) as Array<keyof typeof SHIP_CLASSES>).map((classId) => (
+              <button key={classId} onClick={() => props.onShip(classId)}>Корабль «{SHIP_CLASSES[classId].name}»</button>
+            ))}
+          </div>
+        </>
+      ) : null}
       {world?.buildings.map((building) => (
         <article key={building.id} className="card">
           <h3>{RECIPES[building.kind].name}</h3>
           <p>{building.remainingDays > 0 ? `строится ${building.remainingDays} дн.` : building.stopReason ?? "работает"}</p>
           <div className="row">
-            <button onClick={() => props.onToggle(building.id, !building.enabled)}>{building.enabled ? "Остановить" : "Запустить"}</button>
+            {building.ownerId === props.houseId ? (
+              <button onClick={() => props.onToggle(building.id, !building.enabled)}>{building.enabled ? "Остановить" : "Запустить"}</button>
+            ) : null}
             <button onClick={() => props.onWhy(building.id)}>Почему так</button>
           </div>
         </article>

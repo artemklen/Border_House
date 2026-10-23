@@ -154,6 +154,20 @@ export function createExpansionScenario(seed = 5): SimState {
   placeBuilding(state, home, ai.id, "farm");
   placeShip(state, ai.id, home, "freighter", 10);
   placeFamily(state, ai, home, 40, true);
+  const watcher = endowHouse(state, { name: "Дом Солар", color: "#e0a84a", crest: "СЛ", profile: "player", player: true, credits: 4000 });
+  const post = endowWorld(state, {
+    id: "e-watch",
+    name: "Наблюдательный Пост",
+    specialty: "наблюдение",
+    x: 0,
+    y: 500,
+    ownerId: watcher.id,
+    population: 0,
+    popMoneyPerCapita: 0,
+    tariffBps: 0,
+  });
+  watcher.capitalId = post.id;
+  placeFamily(state, watcher, post, 40, true);
   return state;
 }
 
@@ -191,7 +205,7 @@ export function createSuccessionScenario(seed = 9, withHeir = true): SimState {
   placeFamily(state, house, world, 89, withHeir);
   if (!withHeir) {
     for (const person of state.people) {
-      if (person.role === "heir" || person.role === "spouse") person.alive = false;
+      if (person.role === "heir") person.alive = false;
     }
   }
   const head = state.people.find((person) => person.role === "head");

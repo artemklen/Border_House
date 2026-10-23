@@ -1,3 +1,4 @@
+import { GOODS } from "./goods";
 import type { SimState } from "./types";
 
 export class SaveError extends Error {
@@ -23,8 +24,59 @@ export function deserialize(raw: string): SimState {
   const file = parsed as { version?: unknown; state?: SimState };
   if (file.version !== 1) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает только версию 1.");
   const state = file.state;
-  if (!state || !Array.isArray(state.worlds) || !Array.isArray(state.houses) || typeof state.tick !== "number" || typeof state.rngState !== "number") {
+  if (!state || typeof state.tick !== "number" || typeof state.rngState !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   }
+  assertPlayable(state);
   return state;
+}
+
+const LISTS = ["houses", "worlds", "ships", "routes", "treaties", "people", "journal", "aiLog"] as const;
+
+function assertPlayable(state: SimState): void {
+  if (state.version !== 1) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
+  for (const key of LISTS) {
+    if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
+  }
+  if (!state.rules || typeof state.rules.ticksPerYear !== "number") throw new SaveError("Файл сохранения повреждён: нет правил.");
+  if (!state.accounts || typeof state.accounts.creditsCreated !== "number" || typeof state.accounts.creditsDestroyed !== "number") {
+    throw new SaveError("Файл сохранения повреждён: нет счетов.");
+  }
+  for (const key of ["goodsCreated", "goodsDestroyed", "transformedIn", "transformedOut"] as const) {
+    const pile = state.accounts[key];
+    if (!pile || GOODS.some((good) => typeof pile[good] !== "number")) throw new SaveError("Файл сохранения повреждён: счета товаров неполные.");
+  }
+  const houseIds = new Set<string>();
+  for (const house of state.houses) {
+    if (!house || typeof house.id !== "string" || houseIds.has(house.id)) throw new SaveError("Файл сохранения повреждён: дом без идентификатора.");
+    houseIds.add(house.id);
+  }
+  const worldIds = new Set<string>();
+  for (const world of state.worlds) {
+    if (!world || typeof world.id !== "string" || !world.stock || !Array.isArray(world.buildings) || worldIds.has(world.id)) {
+      throw new SaveError("Файл сохранения повреждён: мир без склада.");
+    }
+    if (GOODS.some((good) => typeof world.stock[good] !== "number")) throw new SaveError("Файл сохранения повреждён: склад мира неполный.");
+    if (world.ownerId && !houseIds.has(world.ownerId)) throw new SaveError("Файл сохранения повреждён: мир ссылается на неизвестный дом.");
+    worldIds.add(world.id);
+  }
+  const routeIds = new Set<string>();
+  for (const route of state.routes) {
+    if (!route || typeof route.id !== "string" || !Array.isArray(route.stops) || !houseIds.has(route.houseId)) {
+      throw new SaveError("Файл сохранения повреждён: маршрут без остановок.");
+    }
+    for (const stop of route.stops) {
+      if (!stop || !worldIds.has(stop.worldId) || !Array.isArray(stop.actions)) throw new SaveError("Файл сохранения повреждён: остановка маршрута неизвестна.");
+    }
+    routeIds.add(route.id);
+  }
+  for (const ship of state.ships) {
+    if (!ship || typeof ship.id !== "string" || !ship.cargo || !houseIds.has(ship.houseId)) throw new SaveError("Файл сохранения повреждён: корабль без трюма.");
+    if (GOODS.some((good) => typeof ship.cargo[good] !== "number")) throw new SaveError("Файл сохранения повреждён: трюм корабля неполный.");
+    if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
+    if (ship.routeId && !routeIds.has(ship.routeId)) throw new SaveError("Файл сохранения повреждён: корабль ссылается на неизвестный маршрут.");
+  }
+  for (const person of state.people) {
+    if (!person || typeof person.id !== "string" || !houseIds.has(person.houseId)) throw new SaveError("Файл сохранения повреждён: человек без дома.");
+  }
 }

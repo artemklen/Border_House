@@ -30,3 +30,10 @@ export function takeTicks(clock: Clock, dtSeconds: number, maxSteps: number): nu
   }
   return steps;
 }
+
+/** Сколько дней выполнить за кадр и нужно ли автосохранение. Секунды сверх лимита шагов остаются в аккумуляторе. */
+export function planFrame(clock: Clock, dtSeconds: number, tick: number, maxSteps = 24): { steps: number; autosave: boolean } {
+  const steps = takeTicks(clock, dtSeconds, maxSteps);
+  const after = tick + steps;
+  return { steps, autosave: Math.floor(after / 12) > Math.floor(tick / 12) };
+}
