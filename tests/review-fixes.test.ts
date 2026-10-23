@@ -1919,4 +1919,42 @@ describe("замечания ревью", () => {
     expect(treaty.status).toBe("rejected");
     expect(state.aiLog.some((entry) => entry.text.includes("обещано руда"))).toBe(true);
   });
+
+  it("переименованный колониальный рейс не заменяется прямой дорогой", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread" && item.classId === "freighter")!;
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: ship.id, worldId: "w-pier" });
+    const route = state.routes.find((item) => item.colony)!;
+    dispatch(state, {
+      type: "updateRoute",
+      routeId: route.id,
+      name: "Обход к причалу",
+      stops: [
+        { worldId: "w-bread", actions: route.stops[0].actions },
+        { worldId: "w-beacon", actions: [] },
+        { worldId: "w-pier", actions: [] },
+      ],
+    });
+    dispatch(state, { type: "pauseRoute", routeId: route.id, paused: true });
+    runTicks(state, 1);
+    expect(ship.routeId).toBe(route.id);
+    expect(ship.status).toBe("docked");
+    expect(route.paused).toBe(true);
+    expect(route.colony).toBe(true);
+    expect(route.stops.map((stop) => stop.worldId)).toEqual(["w-bread", "w-beacon", "w-pier"]);
+    expect(state.routes.filter((item) => item.colony).map((item) => item.id)).toEqual([route.id]);
+  });
+
+  it("объект в накопителе пайка не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const raw = JSON.parse(serialize(state)) as { state: { worlds: Array<{ foodCredit?: unknown }> } };
+    raw.state.worlds[0].foodCredit = {};
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+    const legacy = JSON.parse(serialize(state)) as { state: { worlds: Array<{ foodCredit?: unknown }> } };
+    delete legacy.state.worlds[0].foodCredit;
+    const loaded = deserialize(JSON.stringify(legacy));
+    expect(() => runTicks(loaded, 1)).not.toThrow();
+  });
 });

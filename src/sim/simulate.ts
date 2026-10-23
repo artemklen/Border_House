@@ -1,5 +1,5 @@
 import { foodRouteNeedsFuel, planAi, refreshFoodFuel } from "./ai";
-import { dispatch, foundColony, syncColonyRoute } from "./commands";
+import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
 import {
@@ -293,11 +293,9 @@ function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
 }
 
 function retireColony(state: SimState, ship: Ship): void {
-  const route = routeOf(state, ship.routeId);
+  const route = dedicatedColonyRoute(state, ship);
   ship.mission = null;
-  if (route && route.name.startsWith("Колония ") && state.ships.every((other) => other.id === ship.id || other.routeId !== route.id)) {
-    state.routes = state.routes.filter((item) => item.id !== route.id);
-  }
+  if (route) state.routes = state.routes.filter((item) => item.id !== route.id);
   ship.routeId = null;
   ship.stopReason = "цель колонии уже занята";
 }

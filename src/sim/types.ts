@@ -151,6 +151,8 @@ export interface Route {
   pausedFood?: RouteStop["actions"];
   /** После заправки вернуть корабль на этот маршрут. */
   returnRouteId?: string;
+  /** Колониальный рейс этого корабля. Имя можно сменить, признак остаётся. */
+  colony?: boolean;
 }
 
 export interface Ship {

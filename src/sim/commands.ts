@@ -378,10 +378,11 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
   if (!target || !house) return fail("нет цели колонии");
   const route = routeOf(state, ship.routeId);
   const solo = Boolean(route && state.ships.every((other) => other.id === ship.id || other.routeId !== route.id));
+  const marked = Boolean(route && (route.colony === true || route.name.startsWith(`Колония ${target.name}`)));
   const dedicated = Boolean(
     route
     && solo
-    && route.name.startsWith(`Колония ${target.name}`)
+    && marked
     && route.stops.some((stop) => stop.worldId === ship.worldId)
     && route.stops.some((stop) => stop.worldId === target.id),
   );
@@ -400,6 +401,7 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
     if (!created.ok) return created;
   }
   const current = routeOf(state, ship.routeId);
+  if (current && state.ships.every((other) => other.id === ship.id || other.routeId !== current.id)) current.colony = true;
   const origin = current?.stops[0];
   if (origin && current && origin.worldId === ship.worldId && state.ships.every((other) => other.id === ship.id || other.routeId !== current.id)) {
     origin.actions = colonyLoadActions(state, ship);
@@ -444,6 +446,14 @@ function colonyLoadActions(state: SimState, ship: Ship): RouteStop["actions"] {
   return actions;
 }
 
+export function dedicatedColonyRoute(state: SimState, ship: Ship): Route | undefined {
+  const route = routeOf(state, ship.routeId);
+  if (!route) return undefined;
+  if (!state.ships.every((other) => other.id === ship.id || other.routeId !== route.id)) return undefined;
+  if (route.colony === true || route.name.startsWith("Колония ")) return route;
+  return undefined;
+}
+
 export function foundColony(state: SimState, ship: Ship, world: World): CommandResult {
   const house = houseOf(state, ship.houseId);
   if (!house) return fail("дом корабля не найден");
@@ -467,10 +477,8 @@ export function foundColony(state: SimState, ship: Ship, world: World): CommandR
   world.tariffBps = 150;
   world.specialty = "молодая колония";
   world.governorId = null;
-  const route = routeOf(state, ship.routeId);
-  if (route && route.name.startsWith("Колония ") && state.ships.every((other) => other.id === ship.id || other.routeId !== route.id)) {
-    state.routes = state.routes.filter((item) => item.id !== route.id);
-  }
+  const route = dedicatedColonyRoute(state, ship);
+  if (route) state.routes = state.routes.filter((item) => item.id !== route.id);
   ship.mission = null;
   ship.routeId = null;
   ship.tollWorldId = world.id;

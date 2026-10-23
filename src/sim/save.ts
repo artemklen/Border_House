@@ -129,6 +129,9 @@ function assertPlayable(state: SimState): void {
     if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number" || typeof world.popWallet !== "number" || !Number.isInteger(world.popWallet) || world.popWallet < 0 || typeof world.satisfaction !== "number" || !Number.isFinite(world.satisfaction)) {
       throw new SaveError("Файл сохранения повреждён: население или кошелёк мира нечисловые.");
     }
+    if (world.foodCredit != null && !requireInt(world.foodCredit, 0, 99)) {
+      throw new SaveError("Файл сохранения повреждён: накопитель пайка повреждён.");
+    }
     if (!isMap(world.imported) || !isGoodsLedger(world.imported) || !isGoodsLedger(world.lastImported)) throw new SaveError("Файл сохранения повреждён: нет учёта импорта.");
     if (world.ownerId && !houseIds.has(world.ownerId)) throw new SaveError("Файл сохранения повреждён: мир ссылается на неизвестный дом.");
     for (const building of world.buildings) {
@@ -145,6 +148,9 @@ function assertPlayable(state: SimState): void {
     const counters = ["revenue", "cost", "fuelUsed", "lastRevenue", "lastCost", "lastFuelUsed"] as const;
     if (counters.some((key) => typeof route[key] !== "number" || !Number.isFinite(route[key]))) {
       throw new SaveError("Файл сохранения повреждён: учёт маршрута повреждён.");
+    }
+    if (route.colony != null && typeof route.colony !== "boolean") {
+      throw new SaveError("Файл сохранения повреждён: признак колонии повреждён.");
     }
     for (const stop of route.stops) {
       if (!stop || !worldIds.has(stop.worldId) || !Array.isArray(stop.actions)) throw new SaveError("Файл сохранения повреждён: остановка маршрута неизвестна.");
