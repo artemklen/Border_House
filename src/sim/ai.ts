@@ -2,7 +2,7 @@ import { dispatch } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
 import { byId, distance, foodCover, foodNeed, houseOf, noteAi, worldOf } from "./mutate";
-import type { BuildingKind, Command, House, RouteStop, Ship, SimState, Treaty, World } from "./types";
+import type { BuildingKind, Command, House, Route, RouteStop, Ship, SimState, Treaty, World } from "./types";
 
 const INPUT_BUILDING: Record<GoodId, BuildingKind> = {
   grain: "farm",
@@ -118,7 +118,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
           },
           because: `${house.name} везёт ${GOOD_NAME[missing]} с «${source.name}», чтобы запустить производство на «${world.name}».`,
         });
-      } else if (!world.buildings.some((item) => item.kind === upstream)) {
+      } else if (!world.buildings.some((item) => item.kind === upstream) && canExtract(world, upstream)) {
         plans.push({
           command: { type: "build", houseId: house.id, worldId: world.id, kind: upstream },
           because: `${house.name} строит ${RECIPES[upstream].name} на «${world.name}»: производство встало без «${GOOD_NAME[missing]}», подвозить нечего.`,
@@ -241,6 +241,11 @@ function feedsOwnWorld(state: SimState, route: { houseId: string; stops: RouteSt
   });
 }
 
+function canExtract(world: World, kind: BuildingKind): boolean {
+  const deposit = RECIPES[kind].deposit;
+  return deposit === null || world.deposits[deposit] > 0;
+}
+
 function foodStops(house: House, ship: Ship, source: World, dest: World): RouteStop[] {
   const foodAmount = source.ownerId === house.id ? 40 : 36;
   const outbound = source.ownerId === house.id
@@ -250,18 +255,64 @@ function foodStops(house: House, ship: Ship, source: World, dest: World): RouteS
     ? { good: "food" as const, mode: "unload" as const, amount: 40, price: 0, keep: 0 }
     : { good: "food" as const, mode: "sell" as const, amount: 36, price: 1, keep: 0 };
   const voyage = fuelForLeg(ship, source, dest) + fuelForLeg(ship, dest, source);
-  const otherCargo = sumGoods(ship.cargo) - ship.cargo.fuel;
-  const roomForFuel = SHIP_CLASSES[ship.classId].capacity - foodAmount - otherCargo;
-  const amount = Math.max(0, Math.min(20, voyage - ship.cargo.fuel, roomForFuel));
+  const free = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
+  const amount = Math.max(0, Math.min(voyage - ship.cargo.fuel, free));
   const actions: RouteStop["actions"] = [];
   if (amount > 0) {
-    actions.push({ good: "fuel", mode: source.ownerId === house.id ? "load" : "buy", amount, price: 30, keep: Math.min(10, amount) });
+    actions.push({ good: "fuel", mode: source.ownerId === house.id ? "load" : "buy", amount, price: 30, keep: 0 });
   }
   actions.push(outbound);
   return [
     { worldId: source.id, actions },
     { worldId: dest.id, actions: [inbound] },
   ];
+}
+
+/** На следующем заходе в порт погрузки добирает топливо ровно на круг, не заполняя трюм заранее. */
+export function refreshFoodFuel(state: SimState, ship: Ship, world: World, route: Route): void {
+  if (!route.name.startsWith("Еда:")) return;
+  const here = route.stops.find((stop) => stop.worldId === world.id);
+  const there = route.stops.find((stop) => stop.worldId !== world.id);
+  if (!here || !there || !here.actions.some((action) => action.good === "food" && (action.mode === "load" || action.mode === "buy"))) return;
+  const dest = worldOf(state, there.worldId);
+  if (!dest) return;
+  const voyage = fuelForLeg(ship, world, dest) + fuelForLeg(ship, dest, world);
+  const free = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
+  const amount = Math.max(0, Math.min(voyage - ship.cargo.fuel, free));
+  const fuel = here.actions.find((action) => action.good === "fuel");
+  if (amount <= 0) {
+    if (!fuel) return;
+    here.actions = here.actions.filter((action) => action !== fuel);
+    ship.visitKey = "";
+    return;
+  }
+  if (fuel) {
+    if (fuel.amount === amount && fuel.keep === 0) return;
+    fuel.amount = amount;
+    fuel.keep = 0;
+    ship.visitKey = "";
+    return;
+  }
+  here.actions.unshift({
+    good: "fuel",
+    mode: world.ownerId === ship.houseId ? "load" : "buy",
+    amount,
+    price: 30,
+    keep: 0,
+  });
+  ship.visitKey = "";
+}
+
+export function foodRouteNeedsFuel(state: SimState, ship: Ship, route: Route): boolean {
+  if (!route.name.startsWith("Еда:") || !ship.worldId) return false;
+  const here = route.stops.find((stop) => stop.worldId === ship.worldId);
+  const there = route.stops.find((stop) => stop.worldId !== ship.worldId);
+  if (!here || !there || !here.actions.some((action) => action.good === "food" && (action.mode === "load" || action.mode === "buy"))) return false;
+  const origin = worldOf(state, ship.worldId);
+  const dest = worldOf(state, there.worldId);
+  if (!origin || !dest) return false;
+  const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
+  return ship.cargo.fuel < voyage;
 }
 
 function haulStops(house: House, source: World, dest: World, good: GoodId): RouteStop[] {

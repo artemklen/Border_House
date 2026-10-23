@@ -178,6 +178,9 @@ function assertPlayable(state: SimState): void {
     if (!person || typeof person.id !== "string" || typeof person.name !== "string" || !houseIds.has(person.houseId) || !Array.isArray(person.traits) || typeof person.ageDays !== "number") {
       throw new SaveError("Файл сохранения повреждён: человек без дома.");
     }
+    if (!["head", "heir", "spouse", "kin", "governor"].includes(person.role) || typeof person.loyalty !== "number" || !Number.isFinite(person.loyalty)) {
+      throw new SaveError("Файл сохранения повреждён: роль или лояльность человека повреждены.");
+    }
   }
 }
 

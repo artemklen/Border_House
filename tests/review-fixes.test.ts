@@ -1595,4 +1595,26 @@ describe("замечания ревью", () => {
     expect(ship.status).toBe("transit");
     expect(ship.stopReason).toBeNull();
   });
+
+  it("сектор 21 не бросает грузовоз без топлива и не ставит рудник без руды", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    runTicks(state, 42);
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const freighter = state.ships.find((ship) => ship.houseId === vega.id && ship.classId === "freighter")!;
+    expect(freighter.cargo.fuel === 0 && freighter.stopReason?.includes("топлив")).toBe(false);
+    for (const world of state.worlds) {
+      if (world.deposits.ore <= 0) expect(world.buildings.some((building) => building.kind === "mine")).toBe(false);
+    }
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("роль и лояльность объектом не подменяют партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const role = JSON.parse(serialize(state)) as { state: { people: Array<{ role: unknown }> } };
+    role.state.people[0].role = {};
+    expect(() => deserialize(JSON.stringify(role))).toThrow(SaveError);
+    const loyalty = JSON.parse(serialize(state)) as { state: { people: Array<{ loyalty: unknown }> } };
+    loyalty.state.people[0].loyalty = {};
+    expect(() => deserialize(JSON.stringify(loyalty))).toThrow(SaveError);
+  });
 });

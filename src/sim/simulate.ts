@@ -1,4 +1,4 @@
-import { planAi } from "./ai";
+import { foodRouteNeedsFuel, planAi, refreshFoodFuel } from "./ai";
 import { foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
@@ -257,6 +257,7 @@ function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
     ship.stopReason = "маршрут на паузе";
     return;
   }
+  if (activeRoute) refreshFoodFuel(state, ship, world, activeRoute);
   const hold = activeRoute ? applyStop(state, ship, world, activeRoute) : false;
   let stuck = false;
   if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id) {
@@ -273,6 +274,10 @@ function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
   }
   if (hold || stuck) return;
   const routeNow = routeOf(state, ship.routeId);
+  if (routeNow && foodRouteNeedsFuel(state, ship, routeNow)) {
+    block(ship, "нет топлива на следующий перегон");
+    return;
+  }
   if (routeNow) depart(state, ship, routeNow);
 }
 
