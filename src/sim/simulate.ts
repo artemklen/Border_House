@@ -410,7 +410,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       else if (affordable <= 0) {
         ship.stopReason = "у покупателя нет денег";
         hold = true;
-      } else if (action.good === "fuel" && ship.cargo.fuel > 0) {
+      } else if (action.mode === "buy" && action.good === "fuel" && ship.cargo.fuel > 0) {
         ship.stopReason = "в трюме нет места для дополнительного топлива";
       } else {
         ship.stopReason = "нет места под груз или на складе";
@@ -421,7 +421,12 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     moveGoods(sellerPile, buyerPile, action.good, qty);
     ship.visitMoved[index] = moved + qty;
     if (action.mode === "buy") rememberSupply(ship, action.good, world.ownerId ?? ship.houseId, qty);
-    if (action.mode === "sell") drawSupply(ship, action.good, qty);
+    let deliveredQty = qty;
+    if (action.mode === "sell") {
+      const slices = drawSupply(ship, action.good, qty);
+      const local = slices.filter((slice) => slice.houseId === world.ownerId).reduce((sum, slice) => sum + slice.qty, 0);
+      deliveredQty = qty - local;
+    }
     moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, qty * price);
     buyer.flow.purchases += qty * price;
     seller.flow.sales += qty * price;
@@ -430,7 +435,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     world.imported[sellerHouse][action.good] += qty;
     if (action.mode === "sell") route.revenue += qty * price;
     else route.cost += qty * price;
-    countDelivery(state, sellerHouse, world, action.good, qty);
+    if (deliveredQty > 0) countDelivery(state, sellerHouse, world, action.good, deliveredQty);
     if (action.mode === "sell" && qty < wanted && room <= qty) {
       ship.stopReason = "склад заполнен";
       hold = true;

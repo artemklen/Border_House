@@ -1352,4 +1352,103 @@ describe("замечания ревью", () => {
     expect(line).toContain("0%");
     expect(line).toContain("0 ед. к 24");
   });
+
+  it("перепродажа в той же столице не закрывает поставку", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    ship.worldId = "w-vega";
+    ship.fromId = "w-vega";
+    ship.tollWorldId = "w-vega";
+    state.treaties.push({
+      id: "t-food",
+      kind: "supply",
+      proposerId: player.id,
+      targetId: vega.id,
+      status: "active",
+      startTick: 0,
+      endTick: 100,
+      duration: 100,
+      tariffBps: 0,
+      good: "food",
+      qtyPerWindow: 12,
+      delivered: 0,
+      windowDays: 0,
+      note: "еда",
+    });
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Туда-сюда",
+      shipId: ship.id,
+      stops: [
+        {
+          worldId: "w-vega",
+          actions: [
+            { good: "food", mode: "buy", amount: 12, price: 400, keep: 0 },
+            { good: "food", mode: "sell", amount: 12, price: 1, keep: 0 },
+          ],
+        },
+        { worldId: "w-bread", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(state.treaties[0].delivered).toBe(0);
+    expect(audit(state).ok).toBe(true);
+  });
+
+  it("колония оставляет топливо на обратный путь", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    const bread = state.worlds.find((world) => world.id === "w-bread")!;
+    for (const building of bread.buildings) building.enabled = false;
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: ship.id, worldId: "w-bay" });
+    const colony = state.routes.find((route) => route.name.startsWith("Колония"))!;
+    const fuel = colony.stops[0].actions.find((action) => action.good === "fuel");
+    expect(fuel?.keep ?? ship.cargo.fuel).toBeGreaterThanOrEqual(24);
+  });
+
+  it("продажа топлива на полный чужой склад держит корабль", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    const market = state.worlds.find((world) => world.id === "w-vega")!;
+    ship.worldId = "w-vega";
+    ship.fromId = "w-vega";
+    ship.tollWorldId = "w-vega";
+    market.population = 0;
+    for (const building of market.buildings) building.enabled = false;
+    const added = market.capacity - sumGoods(market.stock);
+    market.stock.grain += added;
+    state.accounts.goodsCreated.grain += added;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Слить топливо",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-vega", actions: [{ good: "fuel", mode: "sell", amount: 10, price: 1, keep: 0 }] },
+        { worldId: "w-bread", actions: [] },
+      ],
+    });
+    const fuel = ship.cargo.fuel;
+    runTicks(state, 2);
+    expect(ship.status).toBe("docked");
+    expect(ship.cargo.fuel).toBe(fuel);
+  });
+
+  it("сохранение без счётчика или кассы не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const noSerial = JSON.parse(serialize(state)) as { state: { nextSerial?: number } };
+    delete noSerial.state.nextSerial;
+    expect(() => deserialize(JSON.stringify(noSerial))).toThrow(SaveError);
+    const noSales = JSON.parse(serialize(state)) as { state: { houses: Array<{ flow: { sales?: number } }> } };
+    delete noSales.state.houses[0].flow.sales;
+    expect(() => deserialize(JSON.stringify(noSales))).toThrow(SaveError);
+  });
 });

@@ -78,6 +78,7 @@ function assertPlayable(state: SimState): void {
     && requireInt(rules.deathCertainAge, 0, 1000)
     && rules.deathCertainAge >= rules.deathStartAge;
   if (!ruleOk) throw new SaveError("Файл сохранения повреждён: нет правил.");
+  if (!Number.isInteger(state.nextSerial) || state.nextSerial < 0) throw new SaveError("Файл сохранения повреждён: нет счётчика.");
   requireGoods(state.rules.basePrice, "базовые цены");
   if (!state.accounts || typeof state.accounts.creditsCreated !== "number" || typeof state.accounts.creditsDestroyed !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет счетов.");
@@ -92,7 +93,8 @@ function assertPlayable(state: SimState): void {
     if (typeof house.credits !== "number" || !Number.isInteger(house.credits) || house.credits < 0) {
       throw new SaveError("Файл сохранения повреждён: казна дома нечисловая.");
     }
-    if (!house.flow || typeof house.flow.wages !== "number" || !house.lastFlow || typeof house.lastFlow.wages !== "number") {
+    const flowKeys = ["wages", "taxes", "sales", "purchases", "tariffsIn", "tariffsOut", "upkeep", "construction"] as const;
+    if (!house.flow || !house.lastFlow || flowKeys.some((key) => typeof house.flow[key] !== "number" || typeof house.lastFlow[key] !== "number")) {
       throw new SaveError("Файл сохранения повреждён: у дома нет кассы.");
     }
     if (!isMap(house.embargo) || !isMap(house.relation) || !isMap(house.tradeWith) || !isMap(house.lastTradeWith)) {

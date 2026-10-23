@@ -412,8 +412,8 @@ function colonyFuelTarget(state: SimState, ship: Ship): number {
   const here = worldOf(state, ship.worldId);
   const target = ship.mission?.type === "colonize" ? worldOf(state, ship.mission.worldId) : undefined;
   if (!here || !target || here.id === target.id) return Math.min(room, 24);
-  const needed = Math.max(1, Math.ceil((distance(here, target) * SHIP_CLASSES[ship.classId].fuelPer1000) / 1000));
-  return Math.min(needed, room);
+  const outbound = Math.max(1, Math.ceil((distance(here, target) * SHIP_CLASSES[ship.classId].fuelPer1000) / 1000));
+  return Math.min(outbound * 2, room);
 }
 
 function colonyLoadActions(state: SimState, ship: Ship): RouteStop["actions"] {
