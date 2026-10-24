@@ -170,9 +170,9 @@ describe("развитие миров", () => {
     raw.state.version = 3;
     for (const world of raw.state.worlds) delete world.development;
     const migrated = deserialize(JSON.stringify(raw));
-    expect(migrated.version).toBe(5);
+    expect(migrated.version).toBe(6);
     expect(migrated.worlds.every((world) => world.development.level === 0)).toBe(true);
-    expect(() => deserialize(JSON.stringify({ version: 6, state: left }))).toThrow(/версия/);
+    expect(() => deserialize(JSON.stringify({ version: 7, state: left }))).toThrow(/версия/);
   });
 
   it("ИИ на ферме и на руде выбирает разные пути и платит своими ресурсами", () => {

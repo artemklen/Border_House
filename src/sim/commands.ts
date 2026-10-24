@@ -1,6 +1,7 @@
 import { cancelContract, proposeContract, respondContract } from "./contracts";
 import { expandPort } from "./port";
 import { resolveSituation } from "./politics";
+import { setTutorialSkipped } from "./tutorial";
 import { cancelDevelopment, developWorld } from "./specialty";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, emptyGoods, type GoodId } from "./goods";
@@ -64,6 +65,10 @@ export function dispatch(state: SimState, command: Command): CommandResult {
       return cancelDevelopment(state, command.houseId, command.worldId);
     case "resolveSituation":
       return resolveSituation(state, command.houseId, command.situationId, command.choice);
+    case "skipTutorial":
+      return setTutorialSkipped(state, true);
+    case "resumeTutorial":
+      return setTutorialSkipped(state, false);
     default:
       return fail("неизвестная команда");
   }

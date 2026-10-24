@@ -263,9 +263,9 @@ describe("политические решения", () => {
     delete legacy.state.tariffGrants;
     delete legacy.state.cooldowns;
     const migrated = deserialize(JSON.stringify(legacy));
-    expect(migrated.version).toBe(5);
+    expect(migrated.version).toBe(6);
     expect(migrated.situations).toEqual([]);
-    expect(() => deserialize(JSON.stringify({ version: 6, state: saved }))).toThrow(/версия/);
+    expect(() => deserialize(JSON.stringify({ version: 7, state: saved }))).toThrow(/версия/);
   });
 
   it("один и тот же seed повторяет события, а кулдаун не даёт крутить эмбарго", () => {

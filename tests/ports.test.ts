@@ -130,19 +130,19 @@ describe("порт", () => {
     expect(hashState(restored)).toBe(hashState(right));
   });
 
-  it("запись версии 2 получает порт, а версия 6 отвергается", () => {
+  it("запись версии 2 получает порт, а версия 7 отвергается", () => {
     const state = createLogisticsScenario();
     const raw = JSON.parse(serialize(state)) as { version: number; state: SimState };
     raw.version = 2;
-    raw.state.version = 2 as unknown as 5;
+    (raw.state as { version: number }).version = 2;
     for (const world of raw.state.worlds) {
       delete (world as { port?: unknown }).port;
       delete (world as { development?: unknown }).development;
     }
     const loaded = deserialize(JSON.stringify(raw));
-    expect(loaded.version).toBe(5);
+    expect(loaded.version).toBe(6);
     expect(loaded.worlds.every((world) => world.port.berthLevel === 0 && world.port.queue.length === 0 && world.development.path === null)).toBe(true);
-    expect(() => deserialize(JSON.stringify({ version: 6, state }))).toThrow(/версия/);
+    expect(() => deserialize(JSON.stringify({ version: 7, state }))).toThrow(/версия/);
   });
 
   it("баржа забирает остаток на следующий день и не проводит уже взятое ещё раз", () => {

@@ -60,6 +60,7 @@ export function createSkeleton(seed: number, scenario: string, rules: GameRules 
     journal: [],
     aiLog: [],
     accounts: emptyAccounts(),
+    tutorial: { skipped: false },
   };
 }
 
