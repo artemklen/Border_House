@@ -138,7 +138,7 @@ export function planShip(state: SimState, houseId: string, worldId: string, clas
     ok: true,
     reason: "",
     lines: [
-      `${shipClass.name}: трюм ${shipClass.capacity} ед., скорость ${shipClass.speed} ед./день, топливо ${shipClass.fuelPer1000} ед. на 1000 ед. пути, содержание ${shipClass.upkeep} кред./день.`,
+      `${shipClass.name}: трюм ${shipClass.capacity} ед., бак ${shipClass.capacity} ед. Топливо в баке и трюм не занимает. Скорость ${shipClass.speed} ед./день, топливо ${shipClass.fuelPer1000} ед. на 1000 ед. пути, содержание ${shipClass.upkeep} кред./день.`,
       `Списать ${shipClass.parts} комплектующих и передать ${shipClass.credits} кредитов населению.`,
       `Корабль будет готов через ${shipClass.days} дн. и останется в «${world.name}», пока ему не дадут маршрут.`,
     ],
@@ -411,7 +411,7 @@ function colonize(state: SimState, houseId: string, shipId: string, worldId: str
   return ok("корабль везёт колониальный набор");
 }
 
-/** Подгоняет маршрут колонии под текущий трюм: лишнее сгружается, недостающее добирается, топливо оставляет место под набор. */
+/** Подгоняет маршрут колонии под текущий трюм: лишнее сгружается, недостающее добирается. Топливо лежит в баке и место набора не занимает. */
 export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
   if (ship.mission?.type !== "colonize" || !ship.worldId || ship.worldId === ship.mission.worldId) return ok();
   const target = worldOf(state, ship.mission.worldId);
@@ -452,14 +452,12 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
 }
 
 function colonyFuelTarget(state: SimState, ship: Ship): number {
-  const rules = state.rules;
-  const room = SHIP_CLASSES[ship.classId].capacity - rules.colonizeParts - rules.colonizeFood;
-  if (room <= 0) return 0;
+  const tank = SHIP_CLASSES[ship.classId].capacity;
   const here = worldOf(state, ship.worldId);
   const target = ship.mission?.type === "colonize" ? worldOf(state, ship.mission.worldId) : undefined;
-  if (!here || !target || here.id === target.id) return Math.min(room, 24);
+  if (!here || !target || here.id === target.id) return Math.min(tank, 24);
   const outbound = fuelAlongRoute(state, ship, here.id, target.id);
-  return Math.min(outbound * 2, room);
+  return Math.min(outbound * 2, tank);
 }
 
 function fuelAlongRoute(state: SimState, ship: Ship, fromId: string, targetId: string): number {

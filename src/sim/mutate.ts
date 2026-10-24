@@ -1,5 +1,5 @@
 import { SHIP_CLASSES } from "./config";
-import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId, type Goods } from "./goods";
+import { GOODS, cloneGoods, emptyGoods, holdLoad, sumGoods, type GoodId, type Goods } from "./goods";
 import { canonicalJson, sha256 } from "./hash";
 import type { Accounts, AuditReport, Building, House, JournalEntry, Person, Route, Ship, SimState, Treaty, World } from "./types";
 
@@ -298,8 +298,9 @@ export function audit(state: SimState): AuditReport {
   }
   for (const ship of state.ships) {
     const shipClassCap = shipCapacity(state, ship);
-    const loaded = sumGoods(ship.cargo);
+    const loaded = holdLoad(ship.cargo);
     if (loaded > shipClassCap) errors.push(`трюм переполнен ${ship.id}: ${loaded}/${shipClassCap}`);
+    if (ship.cargo.fuel > shipClassCap) errors.push(`бак переполнен ${ship.id}: ${ship.cargo.fuel}/${shipClassCap}`);
     for (const good of GOODS) {
       if (ship.cargo[good] < 0) errors.push(`отрицательный груз ${good} на ${ship.id}`);
       goods[good] += ship.cargo[good];

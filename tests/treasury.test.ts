@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { dispatch } from "../src/sim/commands";
-import { createGame, createSkeleton, endowHouse, endowWorld, placeBuilding } from "../src/sim/create";
+import { createGame, createSkeleton, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
+import { createGoods } from "../src/sim/mutate";
+import { holdForLoad } from "../src/sim/port";
 import { tick } from "../src/sim/simulate";
 import type { Flow } from "../src/sim/types";
 import { hintLines, treasuryOutlook, treasuryWarning } from "../src/sim/view";
@@ -48,12 +50,12 @@ describe("казна базовой партии", () => {
       const stopped = state.worlds.some((world) => world.ownerId === player.id && world.buildings.some((building) => building.stopReason === "дом не оплатил работников" || building.stopReason === "нет денег на содержание предприятия"));
       if (stopped && fail === null) fail = day;
     }
-    expect(marks).toEqual({ 12: 14104, 24: 10066, 36: 5451, 48: 997, 50: 195 });
-    expect(fail).toBe(51);
+    expect(marks).toEqual({ 12: 14104, 24: 10255, 36: 5826, 48: 1408, 50: 606 });
+    expect(fail).toBe(52);
     const again = createGame({ seed: 21, scenario: "base" });
     const other = again.houses.find((house) => house.player)!;
     for (let day = 0; day < 50; day += 1) tick(again);
-    expect(other.credits).toBe(195);
+    expect(other.credits).toBe(606);
   });
 
   it("рейс в Порт Лиры приносит выручку до отказа смены", () => {
@@ -72,13 +74,67 @@ describe("казна базовой партии", () => {
       ],
     }).ok).toBe(true);
     let sold = 0;
+    let carried = 0;
+    let fuelWithFood = 0;
     for (let day = 1; day <= 50; day += 1) {
       tick(state);
+      if (ship.cargo.food > carried) {
+        carried = ship.cargo.food;
+        fuelWithFood = ship.cargo.fuel;
+      }
       const route = state.routes.find((item) => item.houseId === player.id)!;
       if (sold === 0 && route.revenue > 0) sold = day;
     }
+    expect(carried).toBe(40);
+    expect(fuelWithFood).toBeGreaterThanOrEqual(24);
     expect(sold).toBeGreaterThan(0);
     expect(sold).toBeLessThan(51);
+  });
+
+  it("бак и трюм заполняются отдельно", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    const bread = state.worlds.find((world) => world.id === "w-bread")!;
+    const fuelBefore = bread.stock.fuel;
+    ship.cargo.fuel = 70;
+    expect(dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Ещё топливо",
+      shipId: ship.id,
+      autoFuel: false,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "fuel", mode: "load", amount: 5, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    }).ok).toBe(true);
+    tick(state);
+    expect(bread.stock.fuel).toBe(fuelBefore);
+    expect(ship.cargo.fuel).toBeLessThanOrEqual(70);
+    expect(ship.status).toBe("transit");
+
+    const held = createGame({ seed: 21, scenario: "base" });
+    held.aiEnabled = false;
+    const owner = held.houses.find((house) => house.player)!;
+    const full = held.ships.find((item) => item.houseId === owner.id && item.worldId === "w-bread")!;
+    full.cargo.food = 70;
+    full.cargo.fuel = 20;
+    expect(dispatch(held, {
+      type: "createRoute",
+      houseId: owner.id,
+      name: "Ещё еда",
+      shipId: full.id,
+      autoFuel: false,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 5, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    }).ok).toBe(true);
+    tick(held);
+    expect(full.cargo.food).toBe(70);
+    expect(full.status).toBe("transit");
   });
 
   it("не выдумывает смену без работников и считает содержание порта и транзита", () => {
@@ -119,5 +175,98 @@ describe("казна базовой партии", () => {
     const reset = player.flowDays === 0 && beforeDays !== 0;
     const flow = dayFlow(beforeFlow, player.flow, player.lastFlow, reset);
     expect(flow.wages).toBe(outlook?.wages);
+  });
+
+  it("полный бак освобождает причал, а колония не сливает топливо на обратный путь", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const bread = state.worlds.find((world) => world.id === "w-bread")!;
+    const stuck = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    const waiter = state.ships.find((item) => item.houseId === player.id && item.id !== stuck.id && item.classId === "freighter")!;
+    stuck.cargo.fuel = 70;
+    waiter.worldId = bread.id;
+    waiter.status = "docked";
+    waiter.portArrived = 2;
+    stuck.portArrived = 1;
+    expect(dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Лишнее топливо",
+      shipId: stuck.id,
+      autoFuel: false,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "fuel", mode: "load", amount: 5, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    }).ok).toBe(true);
+    expect(dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Ждёт причал",
+      shipId: waiter.id,
+      autoFuel: false,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 1, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    }).ok).toBe(true);
+    bread.port.berth = [stuck.id];
+    bread.port.queue = [waiter.id];
+    tick(state);
+    expect(stuck.status).toBe("transit");
+    expect(bread.port.berth).not.toContain(stuck.id);
+
+    const colony = createSkeleton(1, "fixture");
+    const house = endowHouse(colony, { name: "Дом Солар", color: "#e0a84a", crest: "СЛ", profile: "player", player: true, credits: 20000 });
+    const home = endowWorld(colony, { name: "Дом", specialty: "дом", x: 0, y: 0, ownerId: house.id, population: 10, popMoneyPerCapita: 0, stock: { food: 40, parts: 20, fuel: 40 } });
+    endowWorld(colony, { name: "Пустошь", specialty: "пусто", x: 607, y: 0, ownerId: null, population: 0, popMoneyPerCapita: 0 });
+    const ship = placeShip(colony, house.id, home, "freighter", 34);
+    createGoods(ship.cargo, colony.accounts, "food", 30);
+    createGoods(ship.cargo, colony.accounts, "parts", 12);
+    expect(dispatch(colony, { type: "colonize", houseId: house.id, shipId: ship.id, worldId: colony.worlds[1].id }).ok).toBe(true);
+    const fuelAction = colony.routes[0].stops[0].actions.find((action) => action.good === "fuel");
+    expect(fuelAction).toBeUndefined();
+
+    const partial = placeShip(colony, house.id, home, "freighter", 0);
+    partial.cargo.food = 40;
+    partial.loadWait = 0;
+    expect(holdForLoad(partial, { minLoad: 50, maxWait: 3, stops: [], id: "r", houseId: house.id, name: "", paused: false, autoFuel: false, revenue: 0, cost: 0, fuelUsed: 0, movedWindow: 0, daysFlying: 0, daysPort: 0, daysWaiting: 0, lastRevenue: 0, lastCost: 0, lastFuelUsed: 0, lastMoved: 0 } as never, 70)).toBe("waiting");
+    expect(partial.stopReason).toContain("ждём загрузку");
+    expect(partial.stopReason).not.toContain("не влезает");
+  });
+
+  it("полный трюм после погрузки снова выходит, когда пошлина оплачена", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    for (const world of state.worlds) {
+      world.population = 0;
+      for (const building of world.buildings) building.enabled = false;
+    }
+    for (const other of state.ships) {
+      if (other.id === ship.id) continue;
+      other.status = "building";
+      other.remainingDays = 30;
+    }
+    player.credits = 10;
+    expect(dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Полный хлеб",
+      shipId: ship.id,
+      autoFuel: false,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 100, price: 0, keep: 0 }] },
+        { worldId: "w-lyra", actions: [{ good: "food", mode: "sell", amount: 40, price: 0, keep: 0 }] },
+      ],
+    }).ok).toBe(true);
+    tick(state);
+    expect(ship.cargo.food).toBe(70);
+    expect(ship.status).toBe("blocked");
+    player.credits = 100000;
+    tick(state);
+    expect(ship.status).toBe("transit");
   });
 });

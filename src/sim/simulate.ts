@@ -5,7 +5,7 @@ import { advanceLoadWaits, advancePorts, arrangePorts, capPort, holdForLoad, lea
 import { advanceDevelopments, intendedInputs, plannedBatch, transitFuelDiscount } from "./specialty";
 import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
-import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
+import { GOODS, cloneGoods, emptyGoods, freeBay, sumGoods, type GoodId } from "./goods";
 import {
   accessDenied,
   byId,
@@ -422,7 +422,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
     const moved = ship.visitMoved[index] ?? 0;
     const wanted = action.amount - moved;
     if (wanted <= 0) continue;
-    const roomCargo = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
+    const roomCargo = freeBay(SHIP_CLASSES[ship.classId].capacity, ship.cargo, action.good);
     const roomStock = world.capacity - sumGoods(world.stock);
     if (action.mode === "load") {
       if (world.ownerId !== ship.houseId) {
@@ -432,7 +432,15 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
       const raw = Math.min(wanted, Math.max(0, world.stock[action.good] - action.keep), roomCargo);
       const capped = capPort(ship, raw);
       const qty = capped.qty;
-      if (qty <= 0) ship.stopReason = capped.limited ? "лимит порта на сегодня исчерпан" : `нечего грузить: ${goodLabel(action.good)}`;
+      if (qty <= 0) {
+        const noRoom = roomCargo <= 0;
+        ship.stopReason = capped.limited
+          ? "лимит порта на сегодня исчерпан"
+          : noRoom
+            ? action.good === "fuel" ? "в баке нет места для топлива" : "нет места под груз"
+            : `нечего грузить: ${goodLabel(action.good)}`;
+        if (capped.limited) hold = true;
+      }
       else {
         moveGoods(world.stock, ship.cargo, action.good, qty);
         ship.visitMoved[index] = moved + qty;
@@ -521,7 +529,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
         }
       } else if (action.mode === "buy") {
         ship.stopReason = action.good === "fuel" && ship.cargo.fuel > 0
-          ? "в трюме нет места для дополнительного топлива"
+          ? "в баке нет места для топлива"
           : "нет места под груз или на складе";
       } else {
         ship.stopReason = "нет места под груз или на складе";
