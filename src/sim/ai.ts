@@ -1,6 +1,6 @@
 import { dispatch } from "./commands";
 import { portIdea } from "./port";
-import { developmentIdea } from "./specialty";
+import { developmentIdea, transitFuelDiscount } from "./specialty";
 import { judgeContract } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
@@ -418,7 +418,8 @@ function foodSource(state: SimState, house: House, dest: World): World | undefin
 
 function fuelForLeg(ship: Ship, from: World, to: World): number {
   const shipClass = SHIP_CLASSES[ship.classId];
-  return Math.max(1, Math.ceil((distance(from, to) * shipClass.fuelPer1000) / 1000));
+  const raw = Math.max(1, Math.ceil((distance(from, to) * shipClass.fuelPer1000) / 1000));
+  return Math.max(1, raw - transitFuelDiscount(from, ship.houseId));
 }
 
 function reachableFuelWorld(state: SimState, ship: Ship, here: World): World | undefined {

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { planAi } from "../src/sim/ai";
 import { dispatch } from "../src/sim/commands";
+import { SHIP_CLASSES } from "../src/sim/config";
 import { createSkeleton, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
 import { createGrainScenario, createLogisticsScenario } from "../src/sim/diagnostics";
-import { audit, createGoods, hashState } from "../src/sim/mutate";
+import { audit, createGoods, destroyGoods, distance, hashState } from "../src/sim/mutate";
 import { effectiveThroughput } from "../src/sim/port";
 import { deserialize, serialize } from "../src/sim/save";
 import { transitThroughputBonus } from "../src/sim/specialty";
@@ -217,5 +218,75 @@ describe("развитие миров", () => {
     expect(field.stock.parts + mine.stock.parts).toBeLessThan(parts);
     expect(audit(state).ok).toBe(true);
     planAi(state);
+  });
+
+  it("ИИ достраивает уже выбранный путь и не меняет его на соседний", () => {
+    const state = createSkeleton(6, "one-path");
+    const player = endowHouse(state, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 1000 });
+    endowWorld(state, { id: "p-home", name: "Дом", specialty: "дом", x: 0, y: 400, ownerId: player.id, population: 20, popMoneyPerCapita: 2, stock: { food: 40 } });
+    const ai = endowHouse(state, { name: "Мастер", color: "#48a", crest: "МС", profile: "industrial", player: false, credits: 30000 });
+    const world = endowWorld(state, {
+      id: "a-both",
+      name: "Комбинат",
+      specialty: "руда и поля",
+      x: 0,
+      y: 0,
+      ownerId: ai.id,
+      population: 90,
+      popMoneyPerCapita: 4,
+      stock: { grain: 40, food: 80, ore: 40, parts: 40, fuel: 40 },
+      deposits: { ore: 100 },
+    });
+    ai.capitalId = world.id;
+    placeBuilding(state, world, ai.id, "farm");
+    placeBuilding(state, world, ai.id, "smelter");
+    state.aiEnabled = true;
+    state.rules.aiInterval = 1;
+    runTicks(state, 40);
+    expect(world.development.path).toBe("industrial");
+    expect(world.development.level).toBe(2);
+    expect(state.journal.some((entry) => entry.text.includes("аграрный путь"))).toBe(false);
+  });
+
+  it("скидка транзита входит в проверку топлива продовольственного рейса", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    const side = state.worlds.find((world) => world.id === "l-side")!;
+    ore.development = { path: "transit", level: 1, suspended: false, invested: 1400, project: null, upkeepPaid: true };
+    createGoods(ore.stock, state.accounts, "food", 40);
+    const ship = state.ships[0];
+    const leg = Math.max(1, Math.ceil((distance(ore, side) * SHIP_CLASSES.freighter.fuelPer1000) / 1000));
+    const voyage = Math.max(1, leg - 1) + leg;
+    destroyGoods(ship.cargo, state.accounts, "fuel", ship.cargo.fuel - voyage);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Еда через узел",
+      shipId: ship.id,
+      autoFuel: true,
+      stops: [
+        { worldId: ore.id, actions: [{ good: "food", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: side.id, actions: [{ good: "food", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.stopReason ?? "").not.toContain("нет топлива");
+    expect(ship.status).toBe("transit");
+  });
+
+  it("возврат за отменённую стройку виден в новом окне кассы", () => {
+    const state = createGrainScenario();
+    const house = state.houses[0];
+    const field = state.worlds.find((world) => world.id === "g-field")!;
+    createGoods(field.stock, state.accounts, "parts", 10);
+    house.flowDays = state.rules.window - 1;
+    dispatch(state, { type: "developWorld", houseId: house.id, worldId: field.id, path: "agrarian" });
+    expect(house.flow.construction).toBe(1600);
+    runTicks(state, 1);
+    expect(house.lastFlow.construction).toBe(1600);
+    expect(house.flow.construction).toBe(0);
+    dispatch(state, { type: "cancelDevelopment", houseId: house.id, worldId: field.id });
+    expect(house.flow.construction).toBe(-800);
   });
 });

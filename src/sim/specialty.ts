@@ -157,9 +157,9 @@ export function cancelDevelopment(state: SimState, houseId: string, worldId: str
   if (!project) return { ok: false, reason: "стройки нет" };
   const want = Math.floor(project.spent / 2);
   const back = Math.min(want, world.popWallet);
-  if (back > 0) {
+    if (back > 0) {
     moveCredits(state, { kind: "pop", worldId: world.id }, { kind: "house", id: house.id }, back);
-    house.flow.construction = Math.max(0, house.flow.construction - back);
+    house.flow.construction -= back;
   }
   const wasSwitch = project.kind === "switch";
   world.development.project = null;
@@ -196,6 +196,14 @@ export function developmentIdea(state: SimState, houseId: string): { command: { 
   let best: { world: World; path: DevelopmentPath; score: number } | null = null;
   for (const world of owned) {
     if (world.development?.project || (world.development?.level ?? 0) >= 2) continue;
+    if (world.development?.path) {
+      const path = world.development.path;
+      const score = pathScores(state, houseId, world)[path];
+      if (world.development.level === 1 && score > 0 && !developmentBlock(state, houseId, world.id, path)) {
+        if (!best || score > best.score) best = { world, path, score };
+      }
+      continue;
+    }
     const scores = pathScores(state, houseId, world);
     const ranked = (Object.entries(scores) as Array<[DevelopmentPath, number]>).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
     for (const [path, score] of ranked) {
