@@ -373,7 +373,7 @@ describe("наследование и сохранения", () => {
     const raw = serialize(paused);
     const loaded = deserialize(raw);
     expect(() => deserialize("{")).toThrow(/повреждён/);
-    expect(() => deserialize(JSON.stringify({ version: 3, state: paused }))).toThrow(/версия/);
+    expect(() => deserialize(JSON.stringify({ version: 4, state: paused }))).toThrow(/версия/);
     runTicks(loaded, 11);
     runTicks(continuous, 0);
     expect(hashState(loaded)).toBe(hashState(continuous));

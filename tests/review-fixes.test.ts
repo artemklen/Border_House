@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { planAi } from "../src/sim/ai";
+import { foodReturnFuel, planAi } from "../src/sim/ai";
 import { createClock, planFrame } from "../src/sim/clock";
 import { dispatch } from "../src/sim/commands";
 import { createGame, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
 import { createExpansionScenario, createGrainScenario, createIndustryScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
 import { sumGoods } from "../src/sim/goods";
-import { audit, foodCover, hashState } from "../src/sim/mutate";
+import { audit, createGoods, destroyGoods, foodCover, hashState } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
 import { bottlenecks, colonyShip, dependencyRows, explainShip, fleetCommandShipId, fleetPickId, foodPerDay, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
@@ -1489,6 +1489,14 @@ describe("замечания ревью", () => {
       lastRevenue: 0,
       lastCost: 0,
       lastFuelUsed: 0,
+      minLoad: 0,
+      maxWait: 0,
+      waitDays: 0,
+      movedWindow: 0,
+      lastMoved: 0,
+      daysFlying: 0,
+      daysPort: 0,
+      daysWaiting: 0,
     });
     ship.routeId = "r-nav";
     ship.status = "docked";
@@ -1714,6 +1722,66 @@ describe("замечания ревью", () => {
       const stuck = ship.worldId === "w-bread" && ship.stopReason?.includes("топлив");
       expect(stuck && cliff.stock.fuel > 30).toBe(false);
     }
+  });
+
+  it("заправка набирает бак на круг еды и дорогу обратно", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    runTicks(state, 90);
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const food = state.routes.find((route) => route.houseId === vega.id && route.autoFuel && !route.returnRouteId);
+    expect(food?.paused).toBe(false);
+    const ship = state.ships.find((item) => item.houseId === vega.id && item.classId === "freighter")!;
+    const refuel = state.routes.find((route) => route.id === ship.routeId && route.returnRouteId);
+    if (refuel && ship.worldId === "w-fuel") {
+      const order = refuel.stops.flatMap((stop) => stop.actions).find((action) => action.good === "fuel");
+      expect(order?.amount ?? 0).toBeGreaterThanOrEqual(35);
+    }
+  });
+
+  it("старый заказ заправки добирает топливо до порога возврата", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    const dock = state.worlds.find((world) => world.id === "l-dock")!;
+    createGoods(dock.stock, state.accounts, "fuel", 200);
+    createGoods(ore.stock, state.accounts, "food", 80);
+    const ship = state.ships[0];
+    ship.worldId = dock.id;
+    ship.fromId = dock.id;
+    ship.status = "docked";
+    const extra = ship.cargo.fuel - 10;
+    if (extra > 0) destroyGoods(ship.cargo, state.accounts, "fuel", extra);
+    const food = dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Еда",
+      autoFuel: true,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "food", mode: "load", amount: 20, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [{ good: "food", mode: "unload", amount: 20, price: 0, keep: 0 }] },
+      ],
+    });
+    expect(food.ok).toBe(true);
+    const home = state.routes.find((route) => route.name === "Еда")!;
+    const needed = foodReturnFuel(state, ship, home, dock);
+    expect(needed).toBeGreaterThan(10);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Заправка",
+      shipId: ship.id,
+      returnRouteId: home.id,
+      stops: [
+        { worldId: "l-dock", actions: [{ good: "fuel", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: "l-ore", actions: [] },
+      ],
+    });
+    const refuel = state.routes.find((route) => route.name === "Заправка")!;
+    ship.visitKey = `${dock.id}:0:${refuel.id}`;
+    ship.visitMoved = [10];
+    runTicks(state, 4);
+    expect(ship.routeId).toBe(home.id);
+    expect(ship.stopReason ?? "").not.toContain("обратный рейс");
   });
 
   it("договор без пошлины не подменяет партию", () => {

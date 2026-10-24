@@ -1,4 +1,5 @@
 import { dispatch } from "./commands";
+import { portIdea } from "./port";
 import { judgeContract } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
@@ -19,7 +20,8 @@ export function planAi(state: SimState): void {
     if (house.player) continue;
     answerProposals(state, house);
     answerContracts(state, house);
-    const plans = ideas(state, house);
+    const portPlan = portIdea(state, house.id);
+    const plans = portPlan ? [portPlan, ...ideas(state, house)] : ideas(state, house);
     let applied = 0;
     for (const plan of plans) {
       if (applied >= 2) break;
@@ -172,6 +174,9 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     if (!here || !destination) continue;
     reserved.add(dry.id);
     const takeHere = gained > 0;
+    const home = state.routes.find((route) => route.id === dry.routeId && route.autoFuel);
+    const needed = home && reachable ? foodReturnFuel(state, dry, home, reachable) : 0;
+    const take = Math.max(needed, reachable?.ownerId === house.id ? 40 : 30);
     plans.push({
       command: {
         type: "createRoute",
@@ -192,8 +197,8 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
             worldId: destination.id,
             actions: reachable
               ? [reachable.ownerId === house.id
-                ? { good: "fuel", mode: "load", amount: 40, price: 0, keep: 20 }
-                : { good: "fuel", mode: "buy", amount: 30, price: 40, keep: 10 }]
+                ? { good: "fuel", mode: "load", amount: take, price: 0, keep: 20 }
+                : { good: "fuel", mode: "buy", amount: take, price: 40, keep: 10 }]
               : [],
           },
         ],
@@ -355,6 +360,29 @@ export function foodRouteNeedsFuel(state: SimState, ship: Ship, route: Route): b
   if (!origin || !dest) return false;
   const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
   return ship.cargo.fuel < voyage;
+}
+
+/** Сколько топлива нужно в баке, чтобы вернуться на продовольственный маршрут и пройти его круг. */
+export function foodReturnFuel(state: SimState, ship: Ship, route: Route, from: World): number {
+  if (!route.autoFuel) return 0;
+  const pickup = route.stops.find((stop) => isFuelPickup(stop, route));
+  const other = pickup ? route.stops.find((stop) => stop.worldId !== pickup.worldId) : undefined;
+  if (!pickup || !other) return 0;
+  const origin = worldOf(state, pickup.worldId);
+  const dest = worldOf(state, other.worldId);
+  if (!origin || !dest) return 0;
+  const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
+  const back = from.id !== origin.id ? fuelForLeg(ship, from, origin) : 0;
+  return voyage + back;
+}
+
+/** Хватает ли топлива на круг продовольственного маршрута, даже если корабль сейчас в другом порту. */
+export function foodVoyageCovered(state: SimState, ship: Ship, route: Route): boolean {
+  const here = ship.worldId ? worldOf(state, ship.worldId) : undefined;
+  const pickup = route.stops.find((stop) => isFuelPickup(stop, route));
+  const origin = pickup ? worldOf(state, pickup.worldId) : undefined;
+  if (!origin) return false;
+  return ship.cargo.fuel >= foodReturnFuel(state, ship, route, here ?? origin);
 }
 
 function isFoodTake(action: RouteStop["actions"][number]): boolean {

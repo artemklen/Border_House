@@ -1,7 +1,7 @@
 import { emptyGoods, type GoodId } from "./goods";
 import type { GameRules, Recipe, ShipClass, ShipClassId } from "./types";
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export const RECIPES: Record<Recipe["kind"], Recipe> = {
   farm: {

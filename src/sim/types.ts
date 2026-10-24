@@ -123,6 +123,23 @@ export interface World {
   lastProduced: Goods;
   lastEaten: number;
   windowDays: number;
+  port: Port;
+}
+
+export interface PortProject {
+  kind: "berth" | "speed";
+  remainingDays: number;
+}
+
+/** Причал и скорость обработки. Складская ёмкость мира сюда не входит. */
+export interface Port {
+  berthLevel: number;
+  speedLevel: number;
+  project: PortProject | null;
+  queue: string[];
+  berth: string[];
+  handled: number;
+  upkeepPaid: boolean;
 }
 
 export interface StopAction {
@@ -150,6 +167,14 @@ export interface Route {
   lastRevenue: number;
   lastCost: number;
   lastFuelUsed: number;
+  minLoad: number;
+  maxWait: number;
+  waitDays: number;
+  movedWindow: number;
+  lastMoved: number;
+  daysFlying: number;
+  daysPort: number;
+  daysWaiting: number;
   /** Маршрут ИИ сам добирает топливо на круг и не отдаёт это место под еду. */
   autoFuel?: boolean;
   pausedFood?: RouteStop["actions"];
@@ -185,6 +210,12 @@ export interface Ship {
   visitKey: string;
   /** Сколько уже проведено по каждому действию этой стоянки. Повтор тика не исполняет то же правило снова. */
   visitMoved: number[];
+  /** Тик, когда корабль встал в очередь этого захода. */
+  portArrived: number;
+  portMoved: number;
+  portAllowance: number;
+  /** Сколько дней этот корабль уже ждёт минимум загрузки на текущей стоянке. */
+  loadWait: number;
 }
 
 export interface Treaty {
@@ -266,7 +297,7 @@ export interface Accounts {
 }
 
 export interface SimState {
-  version: 2;
+  version: 3;
   seed: number;
   scenario: string;
   tick: number;
@@ -290,8 +321,8 @@ export type Command =
   | { type: "build"; houseId: string; worldId: string; kind: BuildingKind }
   | { type: "toggleBuilding"; houseId: string; buildingId: string; enabled: boolean }
   | { type: "buildShip"; houseId: string; worldId: string; classId: ShipClassId }
-  | { type: "createRoute"; houseId: string; name: string; stops: RouteStop[]; shipId?: string; autoFuel?: boolean; returnRouteId?: string }
-  | { type: "updateRoute"; routeId: string; name: string; stops: RouteStop[] }
+  | { type: "createRoute"; houseId: string; name: string; stops: RouteStop[]; shipId?: string; autoFuel?: boolean; returnRouteId?: string; minLoad?: number; maxWait?: number }
+  | { type: "updateRoute"; routeId: string; name: string; stops: RouteStop[]; minLoad?: number; maxWait?: number }
   | { type: "pauseRoute"; routeId: string; paused: boolean }
   | { type: "assignShip"; shipId: string; routeId: string | null }
   | { type: "setTariff"; houseId: string; worldId: string; tariffBps: number }
@@ -322,7 +353,8 @@ export type Command =
   | { type: "respondContract"; houseId: string; contractId: string; accept: boolean }
   | { type: "cancelContract"; houseId: string; contractId: string }
   | { type: "colonize"; houseId: string; shipId: string; worldId: string }
-  | { type: "appointGovernor"; houseId: string; worldId: string; personId: string };
+  | { type: "appointGovernor"; houseId: string; worldId: string; personId: string }
+  | { type: "expandPort"; houseId: string; worldId: string; kind: "berth" | "speed" };
 
 export interface CommandResult {
   ok: boolean;

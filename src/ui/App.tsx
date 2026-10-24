@@ -7,6 +7,7 @@ import { createGame } from "../sim/create";
 import { createExpansionScenario, createGrainScenario, createSuccessionScenario } from "../sim/diagnostics";
 import { GOODS, GOOD_NAME, type GoodId } from "../sim/goods";
 import { foodCover, houseOf, worldOf } from "../sim/mutate";
+import { BERTH_COST, BERTH_DAYS, BERTH_PARTS, BERTH_UPKEEP, SPEED_COST, SPEED_DAYS, SPEED_PARTS, SPEED_UPKEEP, effectiveBerths, effectiveThroughput, portEstimate } from "../sim/port";
 import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
 import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
@@ -78,6 +79,8 @@ export function App() {
   const [houseCount, setHouseCount] = useState(4);
   const [confirm, setConfirm] = useState<{ title: string; lines: string[]; run: () => void } | null>(null);
   const [draftName, setDraftName] = useState("Хлебный рейс");
+  const [draftMinLoad, setDraftMinLoad] = useState(0);
+  const [draftMaxWait, setDraftMaxWait] = useState(0);
   const [draftStops, setDraftStops] = useState<RouteStop[]>([]);
   const [stopWorld, setStopWorld] = useState("w-bread");
   const [action, setAction] = useState<StopAction>({ good: "food", mode: "load", amount: 20, price: 12, keep: 20 });
@@ -314,6 +317,21 @@ export function App() {
                     worldId={selectedWorld?.id ?? sim.worlds[0].id}
                     onSelect={(id) => setSelected({ kind: "world", id })}
                     onExplain={(good) => setMessage(explainPrice(sim, selectedWorld?.id ?? sim.worlds[0].id, good))}
+                    onExpand={(kind) => {
+                      const world = selectedWorld ?? sim.worlds[0];
+                      const cost = kind === "berth" ? BERTH_COST : SPEED_COST;
+                      const parts = kind === "berth" ? BERTH_PARTS : SPEED_PARTS;
+                      const days = kind === "berth" ? BERTH_DAYS : SPEED_DAYS;
+                      const title = kind === "berth" ? "дополнительный причал" : "ускорение обработки";
+                      setConfirm({
+                        title: `${world.name}: ${title}`,
+                        lines: [
+                          `${cost} кред. уйдут населению, ${parts} комплектующих спишутся, срок ${days} дн.`,
+                          "Складская ёмкость мира не вырастет. Пока стройка идёт, второй проект начать нельзя.",
+                        ],
+                        run: () => act({ type: "expandPort", houseId: player.id, worldId: world.id, kind }),
+                      });
+                    }}
                     onColonize={() => {
                       const world = selectedWorld;
                       const ship = colonyShip(sim.ships, player.id, shipId);
@@ -356,6 +374,8 @@ export function App() {
                     houseId={player.id}
                     shipId={fleetCommandShipId(selectedShip, player.id, shipId)}
                     draftName={draftName}
+                    minLoad={draftMinLoad}
+                    maxWait={draftMaxWait}
                     stops={draftStops}
                     stopWorld={stopWorld}
                     action={action}
@@ -364,6 +384,8 @@ export function App() {
                       setSelected({ kind: "ship", id });
                     }}
                     onName={setDraftName}
+                    onMinLoad={setDraftMinLoad}
+                    onMaxWait={setDraftMaxWait}
                     onStopWorld={setStopWorld}
                     onAction={setAction}
                     onAddStop={() => setDraftStops((stops) => [...stops, { worldId: stopWorld, actions: [] }])}
@@ -374,15 +396,17 @@ export function App() {
                       return copy;
                     })}
                     onClear={() => setDraftStops([])}
-                    onCreate={() => act({ type: "createRoute", houseId: player.id, name: draftName, stops: draftStops, shipId: fleetCommandShipId(selectedShip, player.id, shipId) || undefined })}
+                    onCreate={() => act({ type: "createRoute", houseId: player.id, name: draftName, stops: draftStops, shipId: fleetCommandShipId(selectedShip, player.id, shipId) || undefined, minLoad: draftMinLoad, maxWait: draftMaxWait })}
                     onPause={(routeId, next) => act({ type: "pauseRoute", routeId, paused: next })}
                     onAssign={(id, routeId) => act({ type: "assignShip", shipId: id, routeId })}
-                    onUpdate={(routeId) => act({ type: "updateRoute", routeId, name: draftName, stops: draftStops })}
+                    onUpdate={(routeId) => act({ type: "updateRoute", routeId, name: draftName, stops: draftStops, minLoad: draftMinLoad, maxWait: draftMaxWait })}
                     onWhy={(id) => setMessage(explainShip(sim, id))}
                     onLoadRoute={(routeId) => {
                       const route = sim.routes.find((item) => item.id === routeId);
                       if (!route) return;
                       setDraftName(route.name);
+                      setDraftMinLoad(route.minLoad);
+                      setDraftMaxWait(route.maxWait);
                       setDraftStops(route.stops.map((stop) => ({ worldId: stop.worldId, actions: stop.actions.map((item) => ({ ...item })) })));
                     }}
                   />
@@ -514,6 +538,7 @@ function WorldPanel(props: {
   worldId: string;
   onSelect: (id: string) => void;
   onExplain: (good: GoodId) => void;
+  onExpand: (kind: "berth" | "speed") => void;
   onColonize: () => void;
 }) {
   const world = worldOf(props.sim, props.worldId) ?? props.sim.worlds[0];
@@ -529,6 +554,15 @@ function WorldPanel(props: {
         <h2>{world.name}</h2>
         <p>{world.specialty}. Владелец: {worldOwnerName(props.sim, world)}. Население {world.population}, кошелёк {world.popWallet} кред., удовлетворённость {world.satisfaction}.</p>
         <p>Еда: {need} ед./день, запас на {foodCover(world.population, world.stock.food, props.sim.rules.foodPer100)} дн. Склад {Object.values(world.stock).reduce((sum, value) => sum + value, 0)} / {world.capacity} ед. Пошлина {world.tariffBps / 100}%.</p>
+        <p>Порт отдельно от склада: причалов {effectiveBerths(world.port)}, обработка до {effectiveThroughput(world.port)} ед./день. Уровни: причал {world.port.berthLevel}, скорость {world.port.speedLevel}. Содержание причала {BERTH_UPKEEP} кред./день, скорости {SPEED_UPKEEP}. {world.port.project ? `Стройка: ${world.port.project.kind === "berth" ? "причал" : "скорость"}, осталось ${world.port.project.remainingDays} дн.` : "Стройки нет."} {world.port.upkeepPaid ? "Содержание оплачено." : "Содержание не оплачено: сегодня только базовый причал."}</p>
+        <p>{portEstimate(world.port)} За окно обработано {world.port.handled} ед.</p>
+        <p>У причала: {world.port.berth.map((id) => props.sim.ships.find((ship) => ship.id === id)?.name ?? id).join(", ") || "пусто"}. Очередь: {world.port.queue.map((id, index) => `${index + 1}. ${props.sim.ships.find((ship) => ship.id === id)?.name ?? id}`).join("; ") || "нет"}.</p>
+        {world.ownerId === props.sim.houses.find((house) => house.player)?.id ? (
+          <div className="row">
+            <button onClick={() => props.onExpand("berth")}>Причал, {BERTH_COST} кред. и {BERTH_PARTS} компл.</button>
+            <button onClick={() => props.onExpand("speed")}>Скорость, {SPEED_COST} кред. и {SPEED_PARTS} компл.</button>
+          </div>
+        ) : null}
         <p>{governorBlurb(props.sim, world)}</p>
         {!world.ownerId ? <button onClick={props.onColonize}>Готовить колонию</button> : null}
         <table>
@@ -597,11 +631,15 @@ function FleetPanel(props: {
   houseId: string;
   shipId: string;
   draftName: string;
+  minLoad: number;
+  maxWait: number;
   stops: RouteStop[];
   stopWorld: string;
   action: StopAction;
   onShip: (id: string) => void;
   onName: (value: string) => void;
+  onMinLoad: (value: number) => void;
+  onMaxWait: (value: number) => void;
   onStopWorld: (id: string) => void;
   onAction: (action: StopAction) => void;
   onAddStop: () => void;
@@ -633,6 +671,9 @@ function FleetPanel(props: {
         <h3>Редактор маршрута</h3>
         <p>Пока корабль в пути, новое расписание начнётся после текущего перегона. Груз при этом не переносится сам.</p>
         <label>Название<input value={props.draftName} onChange={(event) => props.onName(event.target.value)} /></label>
+        <label>Минимум груза без топлива<input type="number" value={props.minLoad} onChange={(event) => props.onMinLoad(Number(event.target.value))} /></label>
+        <label>Ждать, дней<input type="number" value={props.maxWait} onChange={(event) => props.onMaxWait(Number(event.target.value))} /></label>
+        <p>0 и 0 — рейс как раньше: корабль уходит с тем, что успел взять. Иначе ждёт до минимума и после срока уходит частично.</p>
         <label>Мир остановки
           <select value={props.stopWorld} onChange={(event) => props.onStopWorld(event.target.value)}>
             {props.sim.worlds.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}
@@ -667,7 +708,8 @@ function FleetPanel(props: {
       {routes.map((route) => (
         <article key={route.id} className="card">
           <h3>{route.name}</h3>
-          <p>{route.paused ? "на паузе" : "идёт"}. Это окно: выручка {route.revenue}, расход {route.cost}, топливо {route.fuelUsed}. Прошлое окно: {route.lastRevenue} / {route.lastCost}.</p>
+          <p>{route.paused ? "на паузе" : "идёт"}. Это окно: выручка {route.revenue}, расход {route.cost}, топливо {route.fuelUsed}, груз {route.movedWindow} ед. Дней в пути {route.daysFlying}, у причала {route.daysPort}, в очереди {route.daysWaiting}. Прошлое окно: {route.lastRevenue} / {route.lastCost}, груз {route.lastMoved}.</p>
+          <p>Минимум загрузки {route.minLoad}, ждать до {route.maxWait} дн., уже ждёт {Math.max(0, ...props.sim.ships.filter((ship) => ship.routeId === route.id).map((ship) => ship.loadWait), 0)}. Узкое место смотрите по тексту стоянки корабля: очередь, лимит порта или склад.</p>
           <div className="row">
             <button onClick={() => props.onLoadRoute(route.id)}>В черновик</button>
             <button onClick={() => props.onUpdate(route.id)}>Записать черновик в этот маршрут</button>
@@ -907,7 +949,7 @@ function GamePanel(props: {
 }) {
   return (
     <>
-      <p>Seed {props.sim.seed}. Сохранение версии 2 хранит весь ход, генератор, рейсы и коммерческие контракты. Запись версии 1 открывается без контрактов и без резерва. Чужой номер версии или битый файл не затирают текущую партию.</p>
+      <p>Seed {props.sim.seed}. Сохранение версии 3 хранит ход, рейсы, контракты и портовые очереди. Записи версий 1 и 2 открываются: у старых миров появляется базовый порт без очереди. Чужой номер версии или битый файл не затирают текущую партию.</p>
       <div className="row">
         <button onClick={props.onSave}>Сохранить в браузер</button>
         <button onClick={props.onExport}>Экспорт файла</button>
