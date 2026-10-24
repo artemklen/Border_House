@@ -28,7 +28,12 @@ describe("казна базовой партии", () => {
     expect(warning).toContain("зарплаты 465");
     expect(warning).toContain("примерно на 35 дн");
     expect(warning).toContain("«Касса»");
-    expect(hintLines(state)[0]).toBe(warning);
+    expect(warning).toContain("не гарантия");
+    const ticker = hintLines(state)[0];
+    expect(ticker).toContain("зарплаты 465");
+    expect(ticker).toContain("примерно на 35 дн");
+    expect(ticker).toContain("«Касса»");
+    expect(ticker.length).toBeLessThan(warning.length);
     const marks: Record<number, number> = {};
     let fail: number | null = null;
     for (let day = 1; day <= 60; day += 1) {

@@ -168,7 +168,7 @@ export function hintLines(state: SimState): string[] {
   if (!player) return [];
   const tips: string[] = [];
   const routes = state.routes.filter((route) => route.houseId === player.id);
-  const pressure = treasuryWarning(state, player.id);
+  const pressure = treasuryTicker(state, player.id);
   if (pressure) tips.push(pressure);
   if (routes.length === 0) tips.push(firstVoyageHint(state, player));
   const idle = state.ships.find((ship) => ship.houseId === player.id && ship.status === "docked" && !ship.routeId);
@@ -203,6 +203,12 @@ export function treasuryOutlook(state: SimState, houseId: string): { wages: numb
   if (burn <= 0) return null;
   const free = availableCredits(house);
   return { wages, upkeep, free, runway: Math.floor(free / burn) };
+}
+
+export function treasuryTicker(state: SimState, houseId: string): string | null {
+  const outlook = treasuryOutlook(state, houseId);
+  if (!outlook || outlook.runway > 60) return null;
+  return `Казна: зарплаты ${outlook.wages} и содержание ${outlook.upkeep} кред. в день, свободно ${outlook.free}, примерно на ${outlook.runway} дн. Подробности — вкладка «Касса».`;
 }
 
 export function treasuryWarning(state: SimState, houseId: string): string | null {

@@ -119,6 +119,7 @@ input, select { background: #0e0c0a; border: 1px solid #5c4a30; border-radius: 4
 @media (max-width: 900px) {
   .stage { flex-direction: column; }
   .map-wrap { flex: 0 0 38vh; min-height: 38vh; }
+  .ticker { max-height: 5.5rem; overflow: auto; align-items: flex-start; }
   aside { width: 100%; flex: 1; min-height: 0; border-left: 0; border-top: 1px solid #3d3226; }
   .tabs { flex-wrap: nowrap; overflow-x: auto; }
 }
