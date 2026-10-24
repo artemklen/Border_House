@@ -457,6 +457,8 @@ describe("развитие миров", () => {
     });
     expect(foodReturnFuel(state, ship, state.routes[0], away)).toBe(42);
     expect(foodReturnFuel(state, ship, state.routes[0], origin)).toBe(26);
+    away.development = { path: "transit", level: 2, suspended: false, invested: 3400, project: null, upkeepPaid: true };
+    expect(foodReturnFuel(state, ship, state.routes[0], away)).toBe(42);
   });
 
   it("ИИ не закладывает один путь на двух мирах, пока первая стройка идёт", () => {

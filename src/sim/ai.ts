@@ -381,7 +381,7 @@ export function foodReturnFuel(state: SimState, ship: Ship, route: Route, from: 
   if (!origin || !dest) return 0;
   const outbound = from.id === origin.id ? fuelForLeg(ship, origin, dest) : rawLegFuel(ship, origin, dest);
   const voyage = outbound + rawLegFuel(ship, dest, origin);
-  const back = from.id !== origin.id ? fuelForLeg(ship, from, origin) : 0;
+  const back = from.id !== origin.id ? rawLegFuel(ship, from, origin) : 0;
   return voyage + back;
 }
 
