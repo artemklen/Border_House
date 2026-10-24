@@ -3,6 +3,7 @@ import { createClock, planFrame, type SpeedId } from "../sim/clock";
 import { dispatch, planBuild, planShip, treatyText } from "../sim/commands";
 import { contractEstimate, contractRisks } from "../sim/contracts";
 import { RECIPES, SHIP_CLASSES } from "../sim/config";
+import { createBorderContractScenario, createCrowdedHarborScenario, createIndustryDependenceScenario, campaignBrief } from "../sim/campaign";
 import { createGame } from "../sim/create";
 import { createCrisisScenario, createExpansionScenario, createGrainScenario, createSuccessionScenario } from "../sim/diagnostics";
 import { GOODS, GOOD_NAME, type GoodId } from "../sim/goods";
@@ -13,6 +14,7 @@ import { PATH_LABEL, developmentBlock, developmentText, levelCost, transitThroug
 import type { DevelopmentPath, SituationChoice } from "../sim/types";
 import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
+import { lessonViews } from "../sim/tutorial";
 import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
 import {
   bottlenecks,
@@ -242,6 +244,11 @@ export function App() {
           onWorlds={setWorldCount}
           onHouses={setHouseCount}
           onBase={() => adopt(createGame({ seed, scenario: "base" }))}
+          onScenario={(kind) => {
+            if (kind === "border-contract") adopt(createBorderContractScenario());
+            if (kind === "crowded-harbor") adopt(createCrowdedHarborScenario());
+            if (kind === "industry-dependence") adopt(createIndustryDependenceScenario());
+          }}
           onCustom={() => {
             try {
               adopt(createGame({ seed, scenario: "generated", worlds: worldCount, houses: houseCount }));
@@ -309,6 +316,15 @@ export function App() {
               </div>
             </div>
             <aside>
+              <LessonCard
+                sim={sim}
+                onSkip={() => act({ type: "skipTutorial" })}
+                onResume={() => act({ type: "resumeTutorial" })}
+                onFocus={(worldId) => {
+                  setSelected({ kind: "world", id: worldId });
+                  setTab("world");
+                }}
+              />
               <div className="tabs" role="tablist">
                 {TABS.map(([id, label]) => (
                   <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>
@@ -583,6 +599,7 @@ function Menu(props: {
   onWorlds: (value: number) => void;
   onHouses: (value: number) => void;
   onBase: () => void;
+  onScenario: (kind: "border-contract" | "crowded-harbor" | "industry-dependence") => void;
   onCustom: () => void;
   onLoad: () => void;
   onImport: (raw: string) => void;
@@ -594,6 +611,9 @@ function Menu(props: {
       {props.message ? <p className="warn" role="status">{props.message}</p> : null}
       <div className="row">
         <button className="primary" onClick={props.onBase}>Базовый сценарий: 16 миров и 4 дома</button>
+        <button onClick={() => props.onScenario("border-contract")}>Контракт на границе</button>
+        <button onClick={() => props.onScenario("crowded-harbor")}>Перегруженная гавань</button>
+        <button onClick={() => props.onScenario("industry-dependence")}>Промышленная зависимость</button>
         <button onClick={props.onLoad}>Загрузить автосохранение</button>
         <label>
           Импорт файла
@@ -1066,6 +1086,46 @@ function PoliticsPanel(props: {
   );
 }
 
+function LessonCard(props: {
+  sim: SimState;
+  onSkip: () => void;
+  onResume: () => void;
+  onFocus: (worldId: string) => void;
+}) {
+  const brief = campaignBrief(props.sim);
+  const lessons = lessonViews(props.sim);
+  const current = lessons.find((lesson) => !lesson.done) ?? null;
+  const done = lessons.filter((lesson) => lesson.done).length;
+  return (
+    <article className="card">
+      {brief ? (
+        <>
+          <h2>{brief.title}</h2>
+          <p>{brief.text}</p>
+          {brief.measures.map((measure) => (
+            <p key={measure.id}>{measure.done ? "Готово" : "Ещё нет"}. {measure.title}: {measure.value}. {measure.formula}</p>
+          ))}
+        </>
+      ) : null}
+      {props.sim.tutorial.skipped ? (
+        <button onClick={props.onResume}>Вернуться к обучению</button>
+      ) : (
+        <>
+          <h2>Обучение, {done} из {lessons.length}</h2>
+          {current ? (
+            <>
+              <p>{current.title}. {current.detail}</p>
+              <p>{current.check}</p>
+              {current.focusWorldId ? <button onClick={() => props.onFocus(current.focusWorldId!)}>Показать мир</button> : null}
+            </>
+          ) : <p>Все учебные цели закрыты состоянием партии. Наград нет.</p>}
+          <button onClick={props.onSkip}>Пропустить обучение</button>
+        </>
+      )}
+    </article>
+  );
+}
+
 function GamePanel(props: {
   sim: SimState;
   onSave: () => void;
@@ -1076,7 +1136,7 @@ function GamePanel(props: {
 }) {
   return (
     <>
-      <p>Seed {props.sim.seed}. Сохранение версии 5 хранит ход, рейсы, контракты, портовые очереди, путь развития и открытые политические решения. Записи версий 1–4 открываются: у старых партий список решений пуст. Чужой номер версии или битый файл не затирают текущую партию.</p>
+      <p>Seed {props.sim.seed}. Сохранение версии 6 хранит ход, рейсы, контракты, портовые очереди, путь развития, политические решения и флаг обучения. Записи версий 1–5 открываются: у старых партий обучение включено, список решений пуст, если его не было. Чужой номер версии или битый файл не затирают текущую партию.</p>
       <div className="row">
         <button onClick={props.onSave}>Сохранить в браузер</button>
         <button onClick={props.onExport}>Экспорт файла</button>

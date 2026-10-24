@@ -40,7 +40,9 @@ export function deserialize(raw: string): SimState {
   }
   if (!parsed || typeof parsed !== "object") throw new SaveError("Файл сохранения повреждён.");
   const file = parsed as { version?: unknown; state?: SimState };
-  if (file.version !== 1 && file.version !== 2 && file.version !== 3 && file.version !== 4 && file.version !== 5) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1, 2, 3, 4 и 5.");
+  if (file.version !== 1 && file.version !== 2 && file.version !== 3 && file.version !== 4 && file.version !== 5 && file.version !== 6) {
+    throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1, 2, 3, 4, 5 и 6.");
+  }
   const state = file.state;
   if (!state || !Number.isInteger(state.tick) || state.tick < 0 || typeof state.rngState !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
@@ -51,6 +53,7 @@ export function deserialize(raw: string): SimState {
 }
 
 function migrateSave(state: SimState, version: number): void {
+  const file = state as Omit<SimState, "version"> & { version: number };
   if (version === 1) {
     if (!Array.isArray(state.contracts)) state.contracts = [];
     if (Array.isArray(state.houses)) {
@@ -123,7 +126,7 @@ function migrateSave(state: SimState, version: number): void {
     }
   }
   if (version < 5) {
-    state.version = 5;
+    file.version = 5;
     if (!Array.isArray(state.situations)) state.situations = [];
     if (!Array.isArray(state.tariffGrants)) state.tariffGrants = [];
     if (!Array.isArray(state.cooldowns)) state.cooldowns = [];
@@ -138,6 +141,10 @@ function migrateSave(state: SimState, version: number): void {
       if (house && !Object.hasOwn(house, "successionTick")) house.successionTick = null;
       if (house && !Object.hasOwn(house, "successionPending")) house.successionPending = false;
     }
+  }
+  if (version < 6) {
+    file.version = 6;
+    if (!state.tutorial || typeof state.tutorial.skipped !== "boolean") state.tutorial = { skipped: false };
   }
 }
 
@@ -158,7 +165,8 @@ function requirePrices(value: unknown, label: string): void {
 }
 
 function assertPlayable(state: SimState): void {
-  if (state.version !== 5) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
+  if (state.version !== 6) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
+  if (!state.tutorial || typeof state.tutorial.skipped !== "boolean") throw new SaveError("Файл сохранения повреждён: обучение записано не так.");
   if (typeof state.seed !== "number" || !Number.isFinite(state.seed)) throw new SaveError("Файл сохранения повреждён: нет зерна генератора.");
   for (const key of LISTS) {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);

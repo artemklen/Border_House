@@ -377,8 +377,13 @@ export interface Accounts {
   transformedOut: Goods;
 }
 
+export interface TutorialState {
+  /** Скрыть подсказки. На казну и склады не влияет. */
+  skipped: boolean;
+}
+
 export interface SimState {
-  version: 5;
+  version: 6;
   seed: number;
   scenario: string;
   tick: number;
@@ -399,6 +404,7 @@ export interface SimState {
   journal: JournalEntry[];
   aiLog: JournalEntry[];
   accounts: Accounts;
+  tutorial: TutorialState;
 }
 
 export type Command =
@@ -441,7 +447,9 @@ export type Command =
   | { type: "expandPort"; houseId: string; worldId: string; kind: "berth" | "speed" }
   | { type: "developWorld"; houseId: string; worldId: string; path: DevelopmentPath }
   | { type: "cancelDevelopment"; houseId: string; worldId: string }
-  | { type: "resolveSituation"; houseId: string; situationId: string; choice: SituationChoice };
+  | { type: "resolveSituation"; houseId: string; situationId: string; choice: SituationChoice }
+  | { type: "skipTutorial" }
+  | { type: "resumeTutorial" };
 
 export interface CommandResult {
   ok: boolean;
