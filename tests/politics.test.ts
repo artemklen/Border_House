@@ -34,6 +34,7 @@ describe("политические решения", () => {
     expect(ship.cargo.food).toBe(10);
     expect(ship.portMoved).toBe(10);
     expect(port.port.handled).toBe(10);
+    expect(yielded.routes[0].cost).toBe(120);
     expect(player.credits).toBe(creditsBefore + 120);
     expect(player.flow.sales).toBe(120);
     expect(player.flow.compensation).toBe(0);
@@ -448,6 +449,7 @@ describe("политические решения", () => {
       beneficiaryId: old.proposerId,
       bps: 200,
       untilTick: 24,
+      treatyId: "t-old",
     });
     runTicks(renewed, 1);
     const review = renewed.situations.find((item) => item.kind === "successionReview")!;
@@ -455,6 +457,54 @@ describe("политические решения", () => {
     expect(old.endTick).toBe(48);
     expect(renewed.tariffGrants[0].untilTick).toBe(old.endTick);
     expect(tariffBetween(renewed, old.proposerId, old.targetId, 900, renewed.houses[0].capitalId)).toBe(200);
+
+    const plain = successionCase(true);
+    plain.treaties[0].kind = "supply";
+    plain.treaties[0].tariffBps = 900;
+    plain.houses[0].successionPending = true;
+    advanceSituations(plain);
+    const opened = plain.situations.find((item) => item.kind === "successionReview")!;
+    dispatch(plain, { type: "resolveSituation", houseId: plain.houses[0].id, situationId: opened.id, choice: "yield" });
+    expect(plain.tariffGrants).toHaveLength(1);
+    expect(plain.tariffGrants[0].treatyId).toBe(plain.treaties[0].id);
+    expect(plain.tariffGrants[0].bps).toBe(200);
+    expect(tariffBetween(plain, plain.treaties[0].proposerId, plain.treaties[0].targetId, 900, plain.houses[1].capitalId)).toBe(200);
+    plain.cooldowns = [];
+    plain.houses[0].successionPending = true;
+    plain.tariffGrants.push({ id: "g-port", worldId: "s-other", ownerId: plain.houses[1].id, beneficiaryId: plain.houses[0].id, bps: 400, untilTick: 80, treatyId: null });
+    advanceSituations(plain);
+    const again = plain.situations.find((item) => item.kind === "successionReview" && item.status === "open")!;
+    dispatch(plain, { type: "resolveSituation", houseId: plain.houses[0].id, situationId: again.id, choice: "refuse" });
+    expect(plain.treaties[0].status).toBe("broken");
+    expect(plain.tariffGrants.map((grant) => grant.id)).toEqual(["g-port"]);
+
+    const spareCase = createCrisisScenario();
+    const harbor = spareCase.worlds.find((world) => world.id === "c-port")!;
+    const pinned = spareCase.ships[0];
+    const spare = placeShip(spareCase, pinned.houseId, harbor, "freighter", 0);
+    harbor.port.berth = [spare.id];
+    harbor.port.queue = [pinned.id];
+    pinned.portAllowance = 0;
+    spare.portAllowance = 80;
+    const moved = dispatch(spareCase, { type: "resolveSituation", houseId: spareCase.houses[0].id, situationId: spareCase.situations[0].id, choice: "yield" });
+    expect(moved.ok).toBe(true);
+    expect(spare.cargo.food).toBe(10);
+    expect(pinned.cargo.food).toBe(0);
+
+    const delayed = successionCase(true);
+    const heir = delayed.houses[0];
+    heir.successionPending = true;
+    delayed.situations.push(
+      { id: "q-a", status: "open", houseId: heir.id, kind: "tariffDispute", otherId: delayed.houses[1].id, worldId: null, routeId: null, contractId: null, treatyId: null, shipId: null, cause: "занято", openedTick: 0, deadlineTick: 8, choice: null, cost: 0, days: 24, tariffBps: 0, qty: 0, good: "food" },
+      { id: "q-b", status: "open", houseId: heir.id, kind: "foodDependence", otherId: delayed.houses[1].id, worldId: null, routeId: null, contractId: null, treatyId: null, shipId: null, cause: "занято", openedTick: 0, deadlineTick: 8, choice: null, cost: 0, days: 24, tariffBps: 0, qty: 0, good: "food" },
+    );
+    advanceSituations(delayed);
+    expect(delayed.situations.some((item) => item.kind === "successionReview")).toBe(false);
+    expect(heir.successionPending).toBe(true);
+    for (const item of delayed.situations) item.status = "resolved";
+    advanceSituations(delayed);
+    expect(delayed.situations.some((item) => item.kind === "successionReview" && item.status === "open")).toBe(true);
+    expect(heir.successionPending).toBe(false);
   });
 });
 

@@ -85,6 +85,7 @@ export function endowHouse(
     tradeWith: {},
     lastTradeWith: {},
     successionTick: null,
+    successionPending: false,
   };
   state.houses.push(house);
   createCredits(state, { kind: "house", id: house.id }, spec.credits);

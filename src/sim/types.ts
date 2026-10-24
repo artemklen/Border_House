@@ -85,6 +85,8 @@ export interface House {
   lastTradeWith: Record<string, number>;
   /** Тик, когда у дома уже сменился глава. Смерть здесь не создаётся. */
   successionTick: number | null;
+  /** Смена главы ещё не получила окно решения: слоты были заняты. */
+  successionPending: boolean;
 }
 
 export interface Building {
@@ -349,6 +351,8 @@ export interface TariffGrant {
   beneficiaryId: string;
   bps: number;
   untilTick: number;
+  /** Договор, из которого выросла скидка. Пусто — отдельная уступка порта, её не снимают вместе с поставкой. */
+  treatyId: string | null;
 }
 
 export interface SituationCooldown {

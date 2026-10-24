@@ -1,5 +1,5 @@
 import { foodReturnFuel, foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
-import { advanceSituations } from "./politics";
+import { advanceSituations, dropTreatyGrants } from "./politics";
 import { payContractTakes, planSale, settleContractWindows } from "./contracts";
 import { advanceLoadWaits, advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
 import { advanceDevelopments, intendedInputs, plannedBatch, transitFuelDiscount } from "./specialty";
@@ -713,6 +713,7 @@ function closeTreaties(state: SimState): void {
       if (treaty.windowDays >= state.rules.window || ending) {
         if (treaty.delivered < treaty.qtyPerWindow) {
           treaty.status = "broken";
+          dropTreatyGrants(state, treaty.id);
           shiftRelation(state, treaty.proposerId, treaty.targetId, -12);
           note(state, treaty.targetId, `Договор сорван: поставлено ${treaty.delivered} из ${treaty.qtyPerWindow}. Отношения хуже, товар из воздуха не появился.`);
         } else {
@@ -725,6 +726,7 @@ function closeTreaties(state: SimState): void {
     }
     if (treaty.status === "active" && state.tick >= treaty.endTick) {
       treaty.status = "expired";
+      dropTreatyGrants(state, treaty.id);
       note(state, treaty.targetId, "Срок договора истёк.");
     }
   }
@@ -816,7 +818,10 @@ function passHouse(state: SimState, head: Person): void {
     shiftRelation(state, head.houseId, other.id, rolled.value - 8);
   }
   const house = houseOf(state, head.houseId);
-  if (house) house.successionTick = state.tick;
+  if (house) {
+    house.successionTick = state.tick;
+    house.successionPending = true;
+  }
   note(state, head.houseId, `${head.name} умер. Новый глава ${house?.name ?? "дома"}: ${next.name} (${how}). Казна, миры, корабли, маршруты и договоры остаются у дома.`);
 }
 

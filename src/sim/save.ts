@@ -128,9 +128,15 @@ function migrateSave(state: SimState, version: number): void {
     if (!Array.isArray(state.tariffGrants)) state.tariffGrants = [];
     if (!Array.isArray(state.cooldowns)) state.cooldowns = [];
   }
+  if (Array.isArray(state.tariffGrants)) {
+    for (const grant of state.tariffGrants) {
+      if (grant && !Object.hasOwn(grant, "treatyId")) grant.treatyId = null;
+    }
+  }
   if (Array.isArray(state.houses)) {
     for (const house of state.houses) {
       if (house && !Object.hasOwn(house, "successionTick")) house.successionTick = null;
+      if (house && !Object.hasOwn(house, "successionPending")) house.successionPending = false;
     }
   }
 }
@@ -204,6 +210,7 @@ function assertPlayable(state: SimState): void {
     if (!isMap(house.embargo) || !isMap(house.relation) || !isMap(house.tradeWith) || !isMap(house.lastTradeWith)) {
       throw new SaveError("Файл сохранения повреждён: у дома нет отношений.");
     }
+    if (typeof house.successionPending !== "boolean") throw new SaveError("Файл сохранения повреждён: смена главы не отмечена.");
     if (house.successionTick != null && (!Number.isInteger(house.successionTick) || house.successionTick < 0)) {
       throw new SaveError("Файл сохранения повреждён: смена главы записана нечислом.");
     }
@@ -373,7 +380,7 @@ function assertPlayable(state: SimState): void {
     if (!(GOODS as readonly string[]).includes(situation.good) || typeof situation.cause !== "string") throw new SaveError(broken);
   }
   for (const grant of state.tariffGrants) {
-    if (!grant || typeof grant.id !== "string" || !houseIds.has(grant.ownerId) || !houseIds.has(grant.beneficiaryId) || !requireInt(grant.bps, 0, 2500) || !requireInt(grant.untilTick, 0, 1_000_000_000)) {
+    if (!grant || typeof grant.id !== "string" || (grant.treatyId != null && typeof grant.treatyId !== "string") || !houseIds.has(grant.ownerId) || !houseIds.has(grant.beneficiaryId) || !requireInt(grant.bps, 0, 2500) || !requireInt(grant.untilTick, 0, 1_000_000_000)) {
       throw new SaveError("Файл сохранения повреждён: скидка пошлины повреждена.");
     }
   }

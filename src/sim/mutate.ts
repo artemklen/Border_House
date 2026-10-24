@@ -357,12 +357,12 @@ export function tariffBetween(state: SimState, travelerId: string, ownerId: stri
       treaty.targetId === ownerId,
   );
   const base = deal ? deal.tariffBps : worldTariff;
-  const grant = worldId
-    ? state.tariffGrants.find(
+  const grants = worldId
+    ? state.tariffGrants.filter(
         (item) => item.worldId === worldId && item.ownerId === ownerId && item.beneficiaryId === travelerId && item.untilTick > state.tick,
       )
-    : undefined;
-  return grant ? Math.min(base, grant.bps) : base;
+    : [];
+  return grants.reduce((rate, grant) => Math.min(rate, grant.bps), base);
 }
 
 export function accessDenied(state: SimState, travelerId: string, world: World): boolean {

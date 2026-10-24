@@ -274,7 +274,10 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
   if (choice === "refuse") {
     if (situation.kind === "successionReview") {
       const treaty = state.treaties.find((item) => item.id === situation.treatyId);
-      if (treaty && treaty.status === "active") treaty.status = "broken";
+      if (treaty && treaty.status === "active") {
+        treaty.status = "broken";
+        dropTreatyGrants(state, treaty.id);
+      }
       if (other) shiftRelation(state, house.id, other.id, -10);
       note(state, house.id, `${SITUATION_LABEL[situation.kind]}: отказ. Договор разорван, отношения −10. Казна не списана.`);
       return null;
@@ -289,8 +292,9 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
       note(state, house.id, `${SITUATION_LABEL[situation.kind]}: уступка. Договор с ${other.name} уже действует, второй не открыт. Эмбарго не введено, казна и склады на месте.`);
       return null;
     }
+    const treatyId = serial(state, "t");
     state.treaties.push({
-      id: serial(state, "t"),
+      id: treatyId,
       kind: "supply",
       proposerId: other.id,
       targetId: house.id,
@@ -306,7 +310,7 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
       note: "Поставка по решению о зависимости. Еда приходит только рейсом.",
     });
     const capital = worldOf(state, house.capitalId);
-    if (capital) putGrant(state, capital.id, house.id, other.id, situation.tariffBps, situation.days);
+    if (capital) putGrant(state, capital.id, house.id, other.id, situation.tariffBps, situation.days, treatyId);
     shiftRelation(state, house.id, other.id, 6);
     note(state, house.id, `${SITUATION_LABEL[situation.kind]}: уступка. Договор на ${situation.qty} ${GOOD_NAME[situation.good]} и ${situation.days} дн. Пошлина столицы для поставщика не выше ${situation.tariffBps / 100}% на этот срок. Отношения +6. Еда из события не создана.`);
     return null;
@@ -321,7 +325,7 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
   if (situation.kind === "tariffDispute" && choice === "yield" && other && situation.worldId) {
     const failure = sellToVisitor(state, house, other, situation);
     if (failure) return failure;
-    putGrant(state, situation.worldId, house.id, other.id, situation.tariffBps, situation.days);
+    putGrant(state, situation.worldId, house.id, other.id, situation.tariffBps, situation.days, null);
     shiftRelation(state, house.id, other.id, 8);
     note(state, house.id, `${SITUATION_LABEL[situation.kind]}: уступка. Продано ${situation.qty} продовольствия за ${situation.cost} кред., пошлина для гостя ${situation.tariffBps / 100}% на ${situation.days} дн. Отношения +8.`);
     return null;
@@ -345,7 +349,7 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
     return null;
   }
   if (situation.kind === "congestedPort" && choice === "yield" && other && situation.worldId) {
-    putGrant(state, situation.worldId, house.id, other.id, situation.tariffBps, situation.days);
+    putGrant(state, situation.worldId, house.id, other.id, situation.tariffBps, situation.days, null);
     shiftRelation(state, house.id, other.id, 4);
     note(state, house.id, `${SITUATION_LABEL[situation.kind]}: уступка. Пошлина для ${other.name} ${situation.tariffBps / 100}% на ${situation.days} дн. Отношения +4.`);
     return null;
@@ -374,18 +378,10 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
   if (situation.kind === "successionReview" && choice === "yield") {
     const treaty = state.treaties.find((item) => item.id === situation.treatyId);
     if (!treaty || treaty.status !== "active") return "договор уже не действует";
-    const previousEnd = treaty.endTick;
     treaty.endTick += situation.days;
     treaty.duration = Math.min(360, treaty.duration + situation.days);
     treaty.tariffBps = Math.min(treaty.tariffBps, situation.tariffBps);
-    if (treaty.kind === "supply") {
-      for (const grant of state.tariffGrants) {
-        if (grant.ownerId !== treaty.targetId || grant.beneficiaryId !== treaty.proposerId) continue;
-        if (grant.untilTick <= state.tick || grant.untilTick > previousEnd) continue;
-        grant.untilTick = treaty.endTick;
-        grant.bps = Math.min(grant.bps, treaty.tariffBps);
-      }
-    }
+    if (treaty.kind === "supply") alignSupplyGrant(state, treaty);
     if (other) shiftRelation(state, house.id, other.id, 4);
     note(state, house.id, `${SITUATION_LABEL[situation.kind]}: договор продлён на ${situation.days} дн., пошлина не выше ${situation.tariffBps / 100}%. Отношения +4.`);
     return null;
@@ -400,10 +396,14 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
 }
 
 function openSuccession(state: SimState, house: House): void {
-  if (house.successionTick !== state.tick) return;
+  if (!house.successionPending) return;
   const treaty = state.treaties.find((item) => item.status === "active" && (item.proposerId === house.id || item.targetId === house.id));
-  if (!treaty) return;
+  if (!treaty) {
+    house.successionPending = false;
+    return;
+  }
   const otherId = treaty.proposerId === house.id ? treaty.targetId : treaty.proposerId;
+  const before = state.situations.length;
   pushSituation(state, house, {
     kind: "successionReview",
     otherId,
@@ -419,6 +419,7 @@ function openSuccession(state: SimState, house: House): void {
     qty: 0,
     good: treaty.good,
   });
+  if (state.situations.length > before) house.successionPending = false;
 }
 
 function openBrokenContract(state: SimState, house: House): void {
@@ -580,14 +581,41 @@ function rememberCooldown(state: SimState, situation: Situation): void {
   else state.cooldowns.push({ kind: situation.kind, houseId: situation.houseId, otherId, untilTick });
 }
 
-function putGrant(state: SimState, worldId: string, ownerId: string, beneficiaryId: string, bps: number, days: number): void {
-  const prior = state.tariffGrants.find((item) => item.worldId === worldId && item.ownerId === ownerId && item.beneficiaryId === beneficiaryId);
+export function dropTreatyGrants(state: SimState, treatyId: string): void {
+  state.tariffGrants = state.tariffGrants.filter((grant) => grant.treatyId !== treatyId);
+}
+
+function alignSupplyGrant(state: SimState, treaty: { id: string; targetId: string; proposerId: string; tariffBps: number; endTick: number }): void {
+  const capitalId = houseOf(state, treaty.targetId)?.capitalId;
+  if (!capitalId) return;
+  const prior = state.tariffGrants.find((grant) => grant.treatyId === treaty.id);
+  if (prior) {
+    prior.worldId = capitalId;
+    prior.ownerId = treaty.targetId;
+    prior.beneficiaryId = treaty.proposerId;
+    prior.untilTick = treaty.endTick;
+    prior.bps = Math.min(prior.bps, treaty.tariffBps);
+    return;
+  }
+  state.tariffGrants.push({
+    id: serial(state, "g"),
+    worldId: capitalId,
+    ownerId: treaty.targetId,
+    beneficiaryId: treaty.proposerId,
+    bps: treaty.tariffBps,
+    untilTick: treaty.endTick,
+    treatyId: treaty.id,
+  });
+}
+
+function putGrant(state: SimState, worldId: string, ownerId: string, beneficiaryId: string, bps: number, days: number, treatyId: string | null): void {
+  const prior = state.tariffGrants.find((item) => item.worldId === worldId && item.ownerId === ownerId && item.beneficiaryId === beneficiaryId && item.treatyId === treatyId);
   if (prior) {
     prior.bps = bps;
     prior.untilTick = state.tick + days;
     return;
   }
-  const grant: TariffGrant = { id: serial(state, "g"), worldId, ownerId, beneficiaryId, bps, untilTick: state.tick + days };
+  const grant: TariffGrant = { id: serial(state, "g"), worldId, ownerId, beneficiaryId, bps, untilTick: state.tick + days, treatyId };
   state.tariffGrants.push(grant);
 }
 
@@ -618,16 +646,19 @@ function portCargoBlock(world: World, ship: Ship, qty: number): string | null {
 
 function liveShip(state: SimState, ownerId: string, situation: Situation): Ship | undefined {
   const worldId = situation.worldId;
-  if (!worldId) return undefined;
-  const fits = (ship: Ship) =>
-    ship.houseId === ownerId &&
-    ship.worldId === worldId &&
-    ship.status !== "transit" &&
-    ship.status !== "building" &&
-    SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) >= situation.qty;
-  const pinned = situation.shipId ? shipOf(state, situation.shipId) : undefined;
-  if (pinned && fits(pinned)) return pinned;
-  return state.ships.find(fits);
+  const world = worldOf(state, worldId);
+  if (!worldId || !world) return undefined;
+  const ready = state.ships.filter(
+    (ship) =>
+      ship.houseId === ownerId &&
+      ship.worldId === worldId &&
+      ship.status !== "transit" &&
+      ship.status !== "building" &&
+      SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) >= situation.qty &&
+      world.port.berth.includes(ship.id) &&
+      ship.portAllowance - ship.portMoved >= situation.qty,
+  );
+  return ready.find((ship) => ship.id === situation.shipId) ?? ready[0];
 }
 
 function cargoPurchaseBlock(state: SimState, buyer: House, seller: House | undefined, situation: Situation): string | null {
@@ -652,7 +683,9 @@ function moveCargoPurchase(state: SimState, buyer: House, seller: House | undefi
   const ship = liveShip(state, buyer.id, situation)!;
   if (!recordSale(state, buyer, seller, situation.cost)) return `нужно ${situation.cost} свободных кредитов`;
   capPort(ship, situation.qty);
-  notePortMove(world, routeOf(state, ship.routeId), situation.qty);
+  const route = routeOf(state, ship.routeId);
+  notePortMove(world, route, situation.qty);
+  if (route) route.cost += situation.cost;
   destroyGoods(world.stock, state.accounts, situation.good, situation.qty);
   createGoods(ship.cargo, state.accounts, situation.good, situation.qty);
   rememberSupply(ship, situation.good, seller.id, situation.qty);
@@ -681,7 +714,9 @@ function sellToVisitor(state: SimState, seller: House, buyer: House, situation: 
   const ship = liveShip(state, buyer.id, situation)!;
   if (!recordSale(state, buyer, seller, situation.cost)) return "у гостя нет денег на продовольствие";
   capPort(ship, situation.qty);
-  notePortMove(world, routeOf(state, ship.routeId), situation.qty);
+  const route = routeOf(state, ship.routeId);
+  notePortMove(world, route, situation.qty);
+  if (route) route.cost += situation.cost;
   destroyGoods(world.stock, state.accounts, "food", situation.qty);
   createGoods(ship.cargo, state.accounts, "food", situation.qty);
   rememberSupply(ship, "food", seller.id, situation.qty);
