@@ -57,17 +57,26 @@ export function runTicks(state: SimState, days: number): void {
   for (let day = 0; day < days; day += 1) tick(state);
 }
 
+export function scheduledStaff(state: SimState, world: World): Map<string, number> {
+  const hired = new Map<string, number>();
+  let laborLeft = world.population;
+  const ready = world.buildings.filter((building) => building.remainingDays <= 0 && building.enabled);
+  for (const building of byId(ready)) {
+    const recipe = RECIPES[building.kind];
+    const needed = requiredWorkers(state, world, { ...recipe, workers: plannedBatch(world, recipe).workers });
+    const count = Math.min(needed, laborLeft);
+    laborLeft -= count;
+    hired.set(building.id, count);
+  }
+  return hired;
+}
+
 function employAndProduce(state: SimState): void {
   for (const world of byId(state.worlds)) {
-    const laborPool = world.population;
-    let laborLeft = laborPool;
-    const ready = world.buildings.filter((building) => building.remainingDays <= 0 && building.enabled);
-    for (const building of byId(ready)) {
-      const recipe = RECIPES[building.kind];
-      const needed = requiredWorkers(state, world, { ...recipe, workers: plannedBatch(world, recipe).workers });
-      const hired = Math.min(needed, laborLeft);
-      laborLeft -= hired;
-      building.workers = hired;
+    const staff = scheduledStaff(state, world);
+    for (const [id, count] of staff) {
+      const building = world.buildings.find((item) => item.id === id);
+      if (building) building.workers = count;
     }
     for (const building of byId(world.buildings)) {
       if (building.remainingDays > 0) {

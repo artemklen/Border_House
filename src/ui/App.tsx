@@ -31,6 +31,7 @@ import {
   formatDay,
   governorBlurb,
   hintLines,
+  treasuryWarning,
   keptOtherHouseId,
   keptShipId,
   keptWorldId,
@@ -873,7 +874,8 @@ function CashPanel(props: { sim: SimState; houseId: string }) {
   return (
     <article className="card">
       <h2>Касса {house.name}</h2>
-      <p>Баланс {house.credits} кред., из них свободно {house.credits - house.reserved}, в резерве контрактов {house.reserved}. Окно учёта {house.flowDays} / {props.sim.rules.window} дн. Резерв остаётся в казне, но его нельзя потратить второй раз. Начальные деньги — явное наделение, содержание кораблей и предприятий сжигается и пишется как сток.</p>
+      <p>Баланс {house.credits} кред., из них свободно {house.credits - house.reserved}, в резерве контрактов {house.reserved}. Окно учёта {house.flowDays} / {props.sim.rules.window} дн. Резерв остаётся в казне, но его нельзя потратить второй раз. Начальные деньги — явное наделение, содержание кораблей и предприятий сжигается и пишется как сток. Окно сбрасывается каждые {props.sim.rules.window} дн., поэтому одна строка окна не равна падению казны с начала партии.</p>
+      {treasuryWarning(props.sim, house.id) ? <p>{treasuryWarning(props.sim, house.id)}</p> : null}
       <table>
         <tbody>
           {FLOW_LABELS.map(([key, label]) => (
