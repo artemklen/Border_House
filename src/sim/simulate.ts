@@ -1,4 +1,4 @@
-import { foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
+import { foodReturnFuel, foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
 import { payContractTakes, planSale, settleContractWindows } from "./contracts";
 import { advanceLoadWaits, advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
 import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
@@ -307,6 +307,14 @@ function serviceDock(state: SimState, ship: Ship): void {
       return;
     }
     if (fueled && home && !foodVoyageCovered(state, ship, home)) {
+      const needed = foodReturnFuel(state, ship, home, world);
+      const stop = routeNow.stops.find((item) => item.worldId === world.id);
+      const fuel = stop?.actions.find((action) => action.good === "fuel" && (action.mode === "load" || action.mode === "buy"));
+      if (stop && fuel && needed > ship.cargo.fuel) {
+        const index = stop.actions.indexOf(fuel);
+        const moved = ship.visitMoved[index] ?? 0;
+        fuel.amount = Math.max(fuel.amount, moved + needed - ship.cargo.fuel);
+      }
       block(ship, "нет топлива на обратный рейс за едой");
       return;
     }
