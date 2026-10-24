@@ -1,4 +1,4 @@
-import { availableCredits, destroyGoods, houseOf, moveCredits, note, sinkCredits, worldOf } from "./mutate";
+import { availableCredits, createGoods, destroyGoods, houseOf, moveCredits, note, sinkCredits, worldOf } from "./mutate";
 import type { CommandResult, Development, DevelopmentPath, Recipe, SimState, World } from "./types";
 import type { GoodId } from "./goods";
 
@@ -136,10 +136,13 @@ export function developWorld(state: SimState, houseId: string, worldId: string, 
   const world = worldOf(state, worldId)!;
   const dev = world.development;
   const switching = Boolean(dev.path && dev.path !== path);
-  const target: 1 | 2 = !switching && dev.level === 1 ? 2 : 1;
+  const target: 1 | 2 = dev.path === path && dev.level === 1 ? 2 : 1;
   const price = levelCost(path, target);
-  destroyGoods(world.stock, state.accounts, "parts", price.parts);
-  moveCredits(state, { kind: "house", id: house.id }, { kind: "pop", worldId: world.id }, price.cost);
+  if (!destroyGoods(world.stock, state.accounts, "parts", price.parts)) return { ok: false, reason: `нужно ${price.parts} комплектующих на складе, есть ${world.stock.parts}` };
+  if (!moveCredits(state, { kind: "house", id: house.id }, { kind: "pop", worldId: world.id }, price.cost)) {
+    createGoods(world.stock, state.accounts, "parts", price.parts);
+    return { ok: false, reason: `нужно ${price.cost} свободных кредитов` };
+  }
   house.flow.construction += price.cost;
   dev.project = { path, targetLevel: target, remainingDays: price.days, spent: price.cost, kind: switching ? "switch" : "build" };
   if (switching) dev.suspended = true;

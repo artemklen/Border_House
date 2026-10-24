@@ -158,6 +158,7 @@ export function placeBuilding(state: SimState, world: World, ownerId: string, ki
     enabled: true,
     stopReason: null,
     workers: RECIPES[kind].workers,
+    lastBatch: null,
   });
 }
 

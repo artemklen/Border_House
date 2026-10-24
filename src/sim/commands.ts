@@ -102,6 +102,7 @@ function build(state: SimState, command: Extract<Command, { type: "build" }>): C
     enabled: true,
     stopReason: "строится",
     workers: 0,
+    lastBatch: null,
   });
   note(state, command.houseId, `Начат строительство: ${recipe.name} на «${world.name}», ${recipe.days} дн.`);
   return ok(`стройка займёт ${recipe.days} дн.`);

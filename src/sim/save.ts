@@ -115,6 +115,14 @@ function migrateSave(state: SimState, version: number): void {
       }
     }
   }
+  if (Array.isArray(state.worlds)) {
+    for (const world of state.worlds) {
+      if (!Array.isArray(world?.buildings)) continue;
+      for (const building of world.buildings) {
+        if (building && !Object.hasOwn(building, "lastBatch")) building.lastBatch = null;
+      }
+    }
+  }
 }
 
 const LISTS = ["houses", "worlds", "ships", "routes", "treaties", "contracts", "people", "journal", "aiLog"] as const;
@@ -221,6 +229,16 @@ function assertPlayable(state: SimState): void {
         throw new SaveError("Файл сохранения повреждён: предприятие без стройки или работников.");
       }
       if (building.stopReason != null && typeof building.stopReason !== "string") throw new SaveError("Файл сохранения повреждён: у предприятия нет подписи.");
+      if (building.lastBatch != null) {
+        const batch = building.lastBatch as { inputs?: unknown; outputs?: unknown; workers?: unknown };
+        if (!Number.isInteger(batch.workers) || (batch.workers as number) < 0) throw new SaveError("Файл сохранения повреждён: партия предприятия повреждена.");
+        requireGoods(batch.inputs, "партия");
+        requireGoods(batch.outputs, "партия");
+        const piles = [batch.inputs, batch.outputs] as Array<Record<string, number>>;
+        if (piles.some((pile) => GOODS.some((good) => !Number.isInteger(pile[good]) || pile[good] < 0))) {
+          throw new SaveError("Файл сохранения повреждён: партия предприятия повреждена.");
+        }
+      }
     }
     worldIds.add(world.id);
     const port = world.port;
@@ -234,11 +252,12 @@ function assertPlayable(state: SimState): void {
       throw new SaveError("Файл сохранения повреждён: очередь порта повреждена.");
     }
     const development = world.development;
-    const pathOk = !development?.path || development.path === "agrarian" || development.path === "industrial" || development.path === "transit";
-    if (!development || !pathOk || !requireInt(development.level, 0, 2) || typeof development.suspended !== "boolean" || !requireInt(development.invested, 0, 1_000_000_000) || typeof development.upkeepPaid !== "boolean") {
+    const path = development?.path;
+    const pathOk = path === null || path === "agrarian" || path === "industrial" || path === "transit";
+    if (!development || !Object.hasOwn(development, "path") || !pathOk || !requireInt(development.level, 0, 2) || typeof development.suspended !== "boolean" || !requireInt(development.invested, 0, 1_000_000_000) || typeof development.upkeepPaid !== "boolean") {
       throw new SaveError("Файл сохранения повреждён: развитие мира повреждено.");
     }
-    if (development.path === null && development.level !== 0) throw new SaveError("Файл сохранения повреждён: развитие мира повреждено.");
+    if ((path === null) !== (development.level === 0)) throw new SaveError("Файл сохранения повреждён: развитие мира повреждено.");
     const project = development.project;
     if (project && (project.path !== "agrarian" && project.path !== "industrial" && project.path !== "transit" || (project.targetLevel !== 1 && project.targetLevel !== 2) || !requireInt(project.remainingDays, 0, 30) || !requireInt(project.spent, 0, 1_000_000_000) || (project.kind !== "build" && project.kind !== "switch"))) {
       throw new SaveError("Файл сохранения повреждён: стройка развития повреждена.");

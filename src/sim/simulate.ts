@@ -157,6 +157,13 @@ function runBuilding(state: SimState, world: World, building: Building): void {
     }
   }
   for (const good of GOODS) world.produced[good] += batch.outputs[good] ?? 0;
+  const inputs = emptyGoods();
+  const outputs = emptyGoods();
+  for (const good of GOODS) {
+    inputs[good] = batch.inputs[good] ?? 0;
+    outputs[good] = batch.outputs[good] ?? 0;
+  }
+  building.lastBatch = { inputs, outputs, workers: batch.workers };
   building.stopReason = null;
 }
 

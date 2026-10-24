@@ -94,6 +94,7 @@ export interface Building {
   enabled: boolean;
   stopReason: string | null;
   workers: number;
+  lastBatch: { inputs: Goods; outputs: Goods; workers: number } | null;
 }
 
 export interface World {

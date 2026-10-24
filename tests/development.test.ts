@@ -340,4 +340,46 @@ describe("развитие миров", () => {
     expect(text).toContain("8 руда → 6 сплавы");
     expect(text).toContain("Нужно работников: 16, на месте 14");
   });
+
+  it("пояснение после выпуска показывает уже прошедшую партию, а не пересчёт по пустому складу", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    ore.development = { path: "industrial", level: 1, suspended: false, invested: 2000, project: null, upkeepPaid: true };
+    destroyGoods(ore.stock, state.accounts, "ore", ore.stock.ore - 8);
+    placeBuilding(state, ore, house.id, "smelter");
+    runTicks(state, 1);
+    const building = ore.buildings.find((item) => item.kind === "smelter")!;
+    expect(ore.stock.ore).toBe(0);
+    expect(ore.stock.alloys).toBe(6);
+    const text = explainBuilding(state, building.id);
+    expect(text).toContain("8 руда → 6 сплавы");
+    expect(text).toContain("Полная партия идёт");
+  });
+
+  it("сохранение без явного пути или с уровнем не по пути отвергается", () => {
+    const state = createGrainScenario();
+    const broken = (edit: (development: Record<string, unknown>) => void) => {
+      const raw = JSON.parse(serialize(state)) as { state: { worlds: Array<{ development: Record<string, unknown> }> } };
+      edit(raw.state.worlds[0].development);
+      expect(() => deserialize(JSON.stringify(raw))).toThrow(/развитие мира повреждено/);
+    };
+    broken((development) => {
+      delete development.path;
+    });
+    broken((development) => {
+      development.path = "";
+    });
+    broken((development) => {
+      development.path = null;
+      development.level = 1;
+    });
+    broken((development) => {
+      development.path = "agrarian";
+      development.level = 0;
+    });
+    const intact = deserialize(serialize(state));
+    expect(intact.worlds[0].development.path).toBe(null);
+    expect(intact.worlds[0].development.level).toBe(0);
+  });
 });

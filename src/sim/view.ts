@@ -64,7 +64,7 @@ export function explainBuilding(state: SimState, buildingId: string): string {
     if (!building) continue;
     const recipe = RECIPES[building.kind];
     if (building.remainingDays > 0) return `${recipe.name} строится ещё ${building.remainingDays} дн. Пока стройка идёт, выпуска нет.`;
-    const batch = plannedBatch(world, recipe);
+    const batch = building.stopReason == null && building.lastBatch ? building.lastBatch : plannedBatch(world, recipe);
     const inputs = GOODS.filter((good) => batch.inputs[good]).map((good) => `${batch.inputs[good]} ${GOOD_NAME[good]}`).join(", ") || "без сырья";
     const outputs = GOODS.filter((good) => batch.outputs[good]).map((good) => `${batch.outputs[good]} ${GOOD_NAME[good]}`).join(", ");
     const reason = building.stopReason ? `Сейчас стоит: ${building.stopReason}.` : "Полная партия идёт.";
