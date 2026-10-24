@@ -62,7 +62,7 @@ export function createCrowdedHarborScenario(seed = 22): SimState {
   const player = endowHouse(state, { name: "Дом Солар", color: "#e0a84a", crest: "СЛ", profile: "player", player: true, credits: 9000 });
   const alpha = endowHouse(state, { name: "Дом Норд", color: "#7d8cff", crest: "НР", profile: "merchant", player: false, credits: 4000 });
   const beta = endowHouse(state, { name: "Дом Ост", color: "#53b38a", crest: "ОС", profile: "merchant", player: false, credits: 4000 });
-  const yard = endowWorld(state, { id: "h-yard", name: "Верфь", specialty: "дом", x: 0, y: 80, ownerId: player.id, population: 28, popMoneyPerCapita: 4, stock: { food: 70, parts: 4, fuel: 20 } });
+  const yard = endowWorld(state, { id: "h-yard", name: "Верфь", specialty: "дом", x: 0, y: 80, ownerId: player.id, population: 28, popMoneyPerCapita: 4, stock: { food: 70, parts: 4, fuel: 20, ore: 24 }, deposits: { ore: 80 } });
   const port = endowWorld(state, {
     id: "h-port",
     name: "Гавань",
@@ -83,6 +83,7 @@ export function createCrowdedHarborScenario(seed = 22): SimState {
   const first = placeShip(state, alpha.id, port, "freighter", 20);
   const second = placeShip(state, beta.id, port, "freighter", 20);
   placeShip(state, player.id, yard, "skiff", 16);
+  placeBuilding(state, yard, player.id, "mine");
   placeFamily(state, player, yard, 40, true);
   placeFamily(state, alpha, homeA, 40, true);
   placeFamily(state, beta, homeB, 40, true);
@@ -165,8 +166,9 @@ function countedDeliveries(contract: { status: string; delivered: number; histor
 
 function borderBrief(state: SimState): ScenarioBrief {
   const player = state.houses.find((house) => house.player);
-  const contract = state.contracts.find((item) => item.sellerId === player?.id);
-  const delivered = contract ? countedDeliveries(contract) : 0;
+  const delivered = state.contracts
+    .filter((item) => item.sellerId === player?.id || item.buyerId === player?.id)
+    .reduce((sum, item) => sum + countedDeliveries(item), 0);
   const capital = state.worlds.find((world) => world.id === player?.capitalId);
   const cover = capital && player ? foodCover(capital.population, capital.stock.food, state.rules.foodPer100) : 0;
   const toll = player ? player.flow.tariffsOut + player.lastFlow.tariffsOut : 0;

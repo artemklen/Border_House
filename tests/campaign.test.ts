@@ -178,6 +178,8 @@ describe("сценарии кампании", () => {
     expect(campaignBrief(border)?.measures.find((item) => item.id === "delivery")?.value).toBe("6 ед.");
     expect(dispatch(border, { type: "cancelContract", houseId: border.houses.find((house) => house.player)!.id, contractId: contract.id }).ok).toBe(true);
     expect(campaignBrief(border)?.measures.find((item) => item.id === "delivery")?.value).toBe("6 ед.");
+    border.contracts.push({ ...contract, id: "k-next", status: "active", delivered: 2, history: [], paidWindow: 0, buyerReserve: 0 });
+    expect(campaignBrief(border)?.measures.find((item) => item.id === "delivery")?.value).toBe("8 ед.");
 
     const industry = createIndustryDependenceScenario();
     const player = industry.houses.find((house) => house.player)!;
