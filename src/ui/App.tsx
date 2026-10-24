@@ -785,16 +785,18 @@ function Appoint(props: {
 }) {
   const [worldId, setWorldId] = useState(props.worlds[0]?.id ?? "");
   const [personId, setPersonId] = useState(props.governorId);
+  const selectedWorld = props.worlds.some((world) => world.id === worldId) ? worldId : (props.worlds[0]?.id ?? "");
+  const selectedPerson = props.people.some((person) => person.id === personId) ? personId : (props.people[0]?.id ?? "");
   return (
     <div className="card stack">
       <h3>Назначить губернатора</h3>
-      <select value={worldId} onChange={(event) => setWorldId(event.target.value)}>
+      <select value={selectedWorld} onChange={(event) => setWorldId(event.target.value)}>
         {props.worlds.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}
       </select>
-      <select value={personId} onChange={(event) => setPersonId(event.target.value)}>
+      <select aria-label="Кандидат в губернаторы" value={selectedPerson} onChange={(event) => setPersonId(event.target.value)}>
         {props.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
       </select>
-      <button onClick={() => props.onAppoint(worldId, personId)}>Назначить</button>
+      <button onClick={() => props.onAppoint(selectedWorld, selectedPerson)} disabled={!selectedPerson}>Назначить</button>
     </div>
   );
 }

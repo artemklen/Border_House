@@ -2139,4 +2139,53 @@ describe("замечания ревью", () => {
     raw.state.worlds[0].population = 0.5;
     expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
   });
+
+  it("дорогой товар не держит уже полный трюм", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    const market = state.worlds.find((world) => world.id === "w-vega")!;
+    for (const world of state.worlds) {
+      world.population = 0;
+      world.tariffBps = 0;
+      for (const building of world.buildings) building.enabled = false;
+    }
+    for (const other of state.ships) {
+      if (other.id === ship.id) continue;
+      other.status = "building";
+      other.remainingDays = 30;
+    }
+    ship.worldId = "w-vega";
+    ship.fromId = "w-vega";
+    ship.tollWorldId = "w-vega";
+    ship.status = "docked";
+    ship.cargo.fuel = 60;
+    ship.cargo.food = 0;
+    market.stock.food = 40;
+    market.stock.fuel = 40;
+    market.prices.food = 10;
+    market.prices.fuel = 30;
+    player.credits = 500;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Полный и дорогой",
+      shipId: ship.id,
+      stops: [
+        {
+          worldId: "w-vega",
+          actions: [
+            { good: "food", mode: "buy", amount: 10, price: 100, keep: 0 },
+            { good: "fuel", mode: "buy", amount: 10, price: 1, keep: 0 },
+          ],
+        },
+        { worldId: "w-bread", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.cargo.food).toBe(10);
+    expect(ship.cargo.fuel).toBe(45);
+    expect(ship.status).toBe("transit");
+  });
 });

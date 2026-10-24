@@ -407,7 +407,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     }
     if (action.mode === "buy" && price > action.price) {
       ship.stopReason = `цена ${goodLabel(action.good)} ${price} выше предела ${action.price}`;
-      hold = true;
+      if (roomCargo > 0) hold = true;
       continue;
     }
     const sellerPile = action.mode === "sell" ? ship.cargo : world.stock;
