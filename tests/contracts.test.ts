@@ -136,9 +136,22 @@ describe("коммерческие контракты", () => {
     expect(result.ok).toBe(true);
     expect(result.reason).toContain("10");
     expect(cancelled.state.houses[1].credits).toBe(5000 + 10);
+    expect(cancelled.state.houses[0].flow.penalties).toBe(10);
+    expect(cancelled.state.houses[1].flow.compensation).toBe(10);
     expect(cancelled.state.houses[0].reserved).toBe(0);
     expect(cancelled.state.houses[1].reserved).toBe(0);
     mustAudit(cancelled.state);
+
+    const buyerWalks = bench();
+    propose(buyerWalks.state, buyerWalks.sellerId, buyerWalks.buyerId, buyerWalks.buyerWorld, 4, 8, 2, 0, 20);
+    dispatch(buyerWalks.state, { type: "respondContract", houseId: buyerWalks.buyerId, contractId: buyerWalks.state.contracts[0].id, accept: true });
+    const walked = dispatch(buyerWalks.state, { type: "cancelContract", houseId: buyerWalks.buyerId, contractId: buyerWalks.state.contracts[0].id });
+    expect(walked.reason).toContain("Залог продавца возвращён целиком");
+    expect(buyerWalks.state.houses[1].credits).toBe(5000 - 16);
+    expect(buyerWalks.state.houses[0].credits).toBe(5000 + 16);
+    expect(buyerWalks.state.houses[1].flow.penalties).toBe(16);
+    expect(buyerWalks.state.houses[0].reserved).toBe(0);
+    mustAudit(buyerWalks.state);
 
     const done = bench();
     propose(done.state, done.sellerId, done.buyerId, done.buyerWorld, 4, 8, 2, 4, 20);
@@ -193,11 +206,15 @@ describe("коммерческие контракты", () => {
     const parsed = JSON.parse(serialize(state)) as { version: number; state: SimState };
     parsed.version = 1;
     delete (parsed.state.houses[0] as { reserved?: number }).reserved;
+    delete (parsed.state.houses[0].flow as { penalties?: number }).penalties;
+    delete (parsed.state.houses[0].lastFlow as { compensation?: number }).compensation;
     delete (parsed.state as { contracts?: unknown }).contracts;
     const loaded = deserialize(JSON.stringify(parsed));
     expect(loaded.version).toBe(2);
     expect(loaded.contracts).toEqual([]);
     expect(loaded.houses[0].reserved).toBe(0);
+    expect(loaded.houses[0].flow.penalties).toBe(0);
+    expect(loaded.houses[0].lastFlow.compensation).toBe(0);
     mustAudit(loaded);
   });
 
@@ -362,6 +379,9 @@ describe("коммерческие контракты", () => {
     const locked = JSON.parse(serialize(state)) as { state: { contracts: unknown } };
     locked.state.contracts = [];
     expect(() => deserialize(JSON.stringify(locked))).toThrow(/резерв казны/);
+    const duplicate = JSON.parse(serialize(state)) as { state: { contracts: Array<{ id: string }> } };
+    duplicate.state.contracts.push({ ...duplicate.state.contracts[0] });
+    expect(() => deserialize(JSON.stringify(duplicate))).toThrow(/контракт повреждён/);
   });
 
   it("четвёртый контракт пары отклоняется, дипломатический договор не занимает это место", () => {

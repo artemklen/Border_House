@@ -60,6 +60,8 @@ export interface Flow {
   tariffsOut: number;
   upkeep: number;
   construction: number;
+  penalties: number;
+  compensation: number;
 }
 
 export interface House {

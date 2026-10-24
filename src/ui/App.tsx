@@ -55,6 +55,8 @@ const FLOW_LABELS: Array<[keyof Flow, string]> = [
   ["wages", "зарплаты"],
   ["upkeep", "содержание, денежный сток"],
   ["construction", "плата за стройку населению"],
+  ["penalties", "штрафы из залога"],
+  ["compensation", "полученные компенсации"],
 ];
 
 export function App() {

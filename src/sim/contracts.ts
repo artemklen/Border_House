@@ -195,13 +195,18 @@ export function cancelContract(state: SimState, houseId: string, contractId: str
     return { ok: true, reason: "снято" };
   }
   if (contract.status !== "active") return fail("этот контракт уже закрыт");
-  const loss = Math.floor(contract.deposit / 2);
-  payDeposit(state, contract, loss);
-  const returned = contract.deposit;
+  const sellerCancels = house.id === contract.sellerId;
+  const loss = sellerCancels ? Math.floor(contract.deposit / 2) : Math.floor(contract.buyerReserve / 2);
+  if (sellerCancels) payDeposit(state, contract, loss);
+  else payReserve(state, contract, loss);
+  const returnedDeposit = contract.deposit;
+  const returnedReserve = contract.buyerReserve;
   releaseDeposit(state, contract);
   releaseBuyer(state, contract);
   contract.status = "cancelled";
-  contract.note = `${house.name} отменил контракт. Покупатель получил ${loss} кред. из залога, продавцу возвращено ${returned}. Резерв покупателя освобождён.`;
+  contract.note = sellerCancels
+    ? `${house.name} отменил контракт со своей стороны. Покупатель получил ${loss} кред. из залога, продавцу возвращено ${returnedDeposit}. Резерв покупателя освобождён.`
+    : `${house.name} отменил контракт со своей стороны. Продавец получил ${loss} кред. из резерва покупателя, покупателю возвращено ${returnedReserve}. Залог продавца возвращён целиком.`;
   note(state, house.id, contract.note);
   shiftRelation(state, contract.sellerId, contract.buyerId, -6);
   return { ok: true, reason: contract.note };
@@ -388,8 +393,23 @@ function payDeposit(state: SimState, contract: Contract, amount: number): void {
   if (!seller || !buyer || money <= 0) return;
   seller.credits -= money;
   seller.reserved -= money;
+  seller.flow.penalties += money;
   contract.deposit -= money;
   buyer.credits += money;
+  buyer.flow.compensation += money;
+}
+
+function payReserve(state: SimState, contract: Contract, amount: number): void {
+  const seller = houseOf(state, contract.sellerId);
+  const buyer = houseOf(state, contract.buyerId);
+  const money = Math.min(amount, contract.buyerReserve, buyer?.reserved ?? 0, buyer?.credits ?? 0);
+  if (!seller || !buyer || money <= 0) return;
+  buyer.credits -= money;
+  buyer.reserved -= money;
+  buyer.flow.penalties += money;
+  contract.buyerReserve -= money;
+  seller.credits += money;
+  seller.flow.compensation += money;
 }
 
 function releaseDeposit(state: SimState, contract: Contract): void {

@@ -56,6 +56,11 @@ function migrateSave(state: SimState, version: number): void {
   if (Array.isArray(state.houses)) {
     for (const house of state.houses) {
       if (house && !Number.isInteger(house.reserved)) house.reserved = 0;
+      for (const book of [house?.flow, house?.lastFlow]) {
+        if (!book) continue;
+        if (!Number.isInteger(book.penalties)) book.penalties = 0;
+        if (!Number.isInteger(book.compensation)) book.compensation = 0;
+      }
     }
   }
 }
@@ -118,7 +123,7 @@ function assertPlayable(state: SimState): void {
     if (!Number.isInteger(house.reserved) || house.reserved < 0 || house.reserved > house.credits) {
       throw new SaveError("Файл сохранения повреждён: резерв казны вышел за деньги дома.");
     }
-    const flowKeys = ["wages", "taxes", "sales", "purchases", "tariffsIn", "tariffsOut", "upkeep", "construction"] as const;
+    const flowKeys = ["wages", "taxes", "sales", "purchases", "tariffsIn", "tariffsOut", "upkeep", "construction", "penalties", "compensation"] as const;
     if (!house.flow || !house.lastFlow || flowKeys.some((key) => typeof house.flow[key] !== "number" || typeof house.lastFlow[key] !== "number")) {
       throw new SaveError("Файл сохранения повреждён: у дома нет кассы.");
     }
@@ -210,8 +215,9 @@ function assertPlayable(state: SimState): void {
     }
   }
   let reservedByHouse = new Map<string, number>();
+  const contractIds = new Set<string>();
   for (const contract of state.contracts) {
-    if (!contract || !isContractStatus(contract.status) || typeof contract.id !== "string" || typeof contract.note !== "string") {
+    if (!contract || !isContractStatus(contract.status) || typeof contract.id !== "string" || contractIds.has(contract.id) || typeof contract.note !== "string") {
       throw new SaveError("Файл сохранения повреждён: контракт повреждён.");
     }
     if (!houseIds.has(contract.sellerId) || !houseIds.has(contract.buyerId) || !worldIds.has(contract.worldId)) {
@@ -233,6 +239,7 @@ function assertPlayable(state: SimState): void {
         throw new SaveError("Файл сохранения повреждён: приёмка контракта повреждена.");
       }
     }
+    contractIds.add(contract.id);
     if (contract.status === "proposed" || contract.status === "active") {
       reservedByHouse.set(contract.sellerId, (reservedByHouse.get(contract.sellerId) ?? 0) + contract.deposit);
       reservedByHouse.set(contract.buyerId, (reservedByHouse.get(contract.buyerId) ?? 0) + contract.buyerReserve);

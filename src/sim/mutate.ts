@@ -13,6 +13,8 @@ export function emptyFlow() {
     tariffsOut: 0,
     upkeep: 0,
     construction: 0,
+    penalties: 0,
+    compensation: 0,
   };
 }
 
