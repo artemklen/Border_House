@@ -16,10 +16,10 @@ export function formatDay(state: SimState): string {
   return `год ${year}, день ${day}`;
 }
 
-export function pickMapTarget(state: SimState, point: { x: number; y: number }, zoom: number): { kind: "ship" | "world"; id: string } | null {
-  const shipRadius = 9 / zoom;
-  const transitRadius = 16 / zoom;
-  const worldRadius = 12 / zoom;
+export function pickMapTarget(state: SimState, point: { x: number; y: number }, zoom: number, radiusPx?: number): { kind: "ship" | "world"; id: string } | null {
+  const shipRadius = radiusPx != null ? radiusPx / zoom : 9 / zoom;
+  const transitRadius = radiusPx != null ? radiusPx / zoom : 16 / zoom;
+  const worldRadius = radiusPx != null ? radiusPx / zoom : 12 / zoom;
   let bestShip: { id: string; distance: number } | null = null;
   for (const ship of state.ships) {
     if (ship.status === "building") continue;
@@ -207,8 +207,8 @@ export function treasuryOutlook(state: SimState, houseId: string): { wages: numb
 
 export function treasuryTicker(state: SimState, houseId: string): string | null {
   const outlook = treasuryOutlook(state, houseId);
-  if (!outlook || outlook.runway > 60) return null;
-  return `Казна: зарплаты ${outlook.wages} и содержание ${outlook.upkeep} кред. в день, свободно ${outlook.free}, примерно на ${outlook.runway} дн. Подробности — вкладка «Касса».`;
+  if (!outlook) return null;
+  return `на ${outlook.runway} дн.`;
 }
 
 export function treasuryWarning(state: SimState, houseId: string): string | null {

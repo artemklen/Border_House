@@ -1,0 +1,141 @@
+/* Дома Пограничья · токены Border House (ENT-17)
+ * Источник: Figma 0LMR3VnMgf0nNHCNbFSuA2, коллекции palette/* и семантические переменные.
+ * Справа в комментарии: какие значения сейчас стоят в src/ui/styles.css и src/ui/drawMap.ts и заменяются этим токеном.
+ * Подключение: импортировать первым в src/ui/styles.css; drawMap.ts читает цвета через getComputedStyle(document.documentElement). */
+
+/* Шрифты: PT Serif 700, PT Sans 400/700 (OFL). Файлы положить в public/fonts/. */
+@font-face { font-family: "PT Serif"; font-weight: 700; font-style: normal; font-display: swap; src: url("/fonts/PTSerif-Bold.woff2") format("woff2"); }
+@font-face { font-family: "PT Sans"; font-weight: 400; font-style: normal; font-display: swap; src: url("/fonts/PTSans-Regular.woff2") format("woff2"); }
+@font-face { font-family: "PT Sans"; font-weight: 700; font-style: normal; font-display: swap; src: url("/fonts/PTSans-Bold.woff2") format("woff2"); }
+
+:root {
+  /* палитра (primitive) */
+  --palette-ink: #14110d;
+  --palette-panel: #1d1812;
+  --palette-panel-raised: #2a231a;
+  --palette-border: #4a3d2c;
+  --palette-border-strong: #7a6548;
+  --palette-parchment: #e9dcc0;
+  --palette-brass: #c8963e;
+  --palette-brass-hover: #d6a64f;
+  --palette-brass-pressed: #a87a2c;
+  --palette-sealing-wax: #a8382a;
+  --palette-wax-light: #e0705f;
+  --palette-copper: #b8713f;
+  --palette-copper-light: #c8804e;
+  --palette-patina: #5f8f7a;
+  --palette-patina-light: #7fb09a;
+  --palette-text: #efe6d4;
+  --palette-muted: #b9ab92;
+  --palette-disabled: #7d705c;
+  --palette-house-solar: #d9a441;
+  --palette-house-vega: #c4513b;
+  --palette-house-vega-text: #d86a4e;
+  --palette-house-orion: #5a86d6;
+  --palette-house-lyra: #8fcf98;
+
+  /* цвета (semantic) */
+  --color-bg-app: var(--palette-ink); /* #14110d · сейчас: #100e0c (:root background), #0e0c0a (input), карта: градиент #1a140f→#10141a→#081016 */
+  --color-bg-panel: var(--palette-panel); /* #1d1812 · сейчас: #14110e (aside), #17130f (.topbar, .ticker), #16130f (.menu) */
+  --color-bg-raised: var(--palette-panel-raised); /* #2a231a · сейчас: #1c1814 (.card, dialog), #2a231c (button) */
+  --color-bg-inverse: var(--palette-parchment); /* #e9dcc0 · сейчас: — (новый) */
+  --color-border-default: var(--palette-border); /* #4a3d2c · сейчас: #3d3226 (.topbar, .tabs, aside), #4a3d2c (.card), #332b22 (td) */
+  --color-border-strong: var(--palette-border-strong); /* #7a6548 · сейчас: #5c4a30 (.legend, input) */
+  --color-border-accent: var(--palette-brass); /* #c8963e · сейчас: #8b6b3a (button), #e0a84a (button.primary) */
+  --color-text-primary: var(--palette-text); /* #efe6d4 · сейчас: #f3ecdf (:root color), #f6f1e6 (drawMap: подписи, выделение) */
+  --color-text-secondary: var(--palette-muted); /* #b9ab92 · сейчас: #b7ab99 (.muted), #d9c7a2 (.ticker) */
+  --color-text-disabled: var(--palette-disabled); /* #7d705c · сейчас: opacity 0.45 (button:disabled), #6d6458 (drawMap: маршрут на паузе) */
+  --color-text-accent: var(--palette-brass); /* #c8963e · сейчас: #e0a84a (.brand), #f0d48a (.credits) */
+  --color-text-on-accent: var(--palette-ink); /* #14110d · сейчас: #1a120c (.crest, drawMap: буквы герба) */
+  --color-text-on-inverse: var(--palette-ink); /* #14110d · сейчас: — */
+  --color-text-on-danger: var(--palette-text); /* #efe6d4 · сейчас: #f0d2c6 (.banner) */
+  --color-accent-primary: var(--palette-brass); /* #c8963e · сейчас: #6d4d1e (button.primary, вкладка aria-selected, favicon), #e0a84a */
+  --color-accent-primary-hover: var(--palette-brass-hover); /* #d6a64f · сейчас: #3a3126 (button:hover) */
+  --color-accent-primary-pressed: var(--palette-brass-pressed); /* #a87a2c · сейчас: — */
+  --color-accent-disabled: var(--palette-panel-raised); /* #2a231a · сейчас: — */
+  --color-status-info: var(--palette-patina); /* #5f8f7a · сейчас: — */
+  --color-status-warn: var(--palette-copper); /* #b8713f · сейчас: — */
+  --color-status-error: var(--palette-sealing-wax); /* #a8382a · сейчас: #3a241c (.banner фон) */
+  --color-status-ok: var(--palette-house-lyra); /* #8fcf98 · сейчас: — */
+  --color-status-info-text: var(--palette-patina-light); /* #7fb09a · сейчас: — */
+  --color-status-warn-text: var(--palette-copper-light); /* #c8804e · сейчас: #e7a090 (.warn) */
+  --color-status-error-text: var(--palette-wax-light); /* #e0705f · сейчас: #e7a090 (.warn) */
+  --color-status-ok-text: var(--palette-house-lyra); /* #8fcf98 · сейчас: #9ddec0 (.ok) */
+  --color-house-solar: var(--palette-house-solar); /* #d9a441 · сейчас: #e0a84a (create.ts, campaign.ts) */
+  --color-house-vega: var(--palette-house-vega); /* #c4513b · сейчас: #d4533c (create.ts), #d4534a (campaign.ts) */
+  --color-house-orion: var(--palette-house-orion); /* #5a86d6 · сейчас: #6ea8fe (create.ts) */
+  --color-house-lyra: var(--palette-house-lyra); /* #8fcf98 · сейчас: #7dcea0 (create.ts), #4aa3d4 (campaign.ts) */
+  --color-house-solar-text: var(--palette-house-solar); /* #d9a441 · сейчас: — */
+  --color-house-vega-text: var(--palette-house-vega-text); /* #d86a4e · сейчас: — */
+  --color-house-orion-text: var(--palette-house-orion); /* #5a86d6 · сейчас: — */
+  --color-house-lyra-text: var(--palette-house-lyra); /* #8fcf98 · сейчас: — */
+  --color-scrim: rgb(20 17 13 / 0.72); /* bg/app 72% · сейчас: dialog::backdrop rgba(0,0,0,0.55) */
+  --color-map-dim: rgb(20 17 13 / 0.35); /* пауза, ENT-16 A14 */
+  --color-territory-alpha: 0.25; /* кольцо территории = цвет дома 25% · сейчас: house.color + "40" */
+
+  /* шрифты */
+  --font-serif: "PT Serif", Georgia, "Iowan Old Style", serif; /* сейчас h1–h3, .brand: Georgia */
+  --font-sans: "PT Sans", "Segoe UI", system-ui, sans-serif; /* сейчас :root: "Segoe UI", "PT Sans" */
+  --font-display: 700 40px/48px var(--font-serif);
+  --font-h1: 700 28px/36px var(--font-serif);
+  --font-h2: 700 20px/28px var(--font-serif);
+  --font-h3: 700 16px/24px var(--font-sans);
+  --font-body: 400 15px/22px var(--font-sans);
+  --font-body-bold: 700 15px/22px var(--font-sans);
+  --font-small: 400 13px/18px var(--font-sans);
+  --font-caps: 700 12px/16px var(--font-sans); /* letter-spacing 0.08em; text-transform: uppercase */
+  --font-button: 700 14px/20px var(--font-sans);
+  --font-numeric: 700 15px/22px var(--font-sans);
+  --font-numeric-large: 700 28px/32px var(--font-serif);
+  --font-map-label: 700 13px/16px var(--font-sans); /* letter-spacing 0.02em */
+  --font-map-label-small: 400 12px/14px var(--font-sans);
+  --font-numeric-variant: tabular-nums; /* font-variant-numeric; не затирает шрифт --font-numeric */
+
+  /* отступы */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* скругления и линии */
+  --radius-sm: 4px; /* сейчас button, input: 4px */
+  --radius-md: 8px; /* сейчас .card, dialog: 6px */
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --stroke-hairline: 1px;
+  --stroke-focus: 2px;
+
+  /* размеры (ENT-11, ENT-13, ENT-15) */
+  --size-topbar: 56px;
+  --size-aside: 400px; /* сейчас aside: min(440px, 100%) */
+  --size-touch: 44px;
+  --size-bottom-nav: 64px;
+  --sheet-half-top: 380px;
+  --sheet-full-top: 64px;
+
+  /* движение (ENT-16) */
+  --motion-instant: 0ms;
+  --motion-press: 60ms;
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 400ms;
+  --motion-popup: 900ms;
+  --motion-alarm: 1200ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-press: 0ms; --motion-slow: 0ms; --motion-popup: 600ms; --motion-alarm: 0ms; }
+}
+
+/* Цвет дома в UI берётся по гербу дома (house.crest), а не из house.color: так не нужно менять src/sim. */
+[data-crest="СЛ"] { --color-house: var(--color-house-solar); --color-house-text: var(--color-house-solar-text); }
+[data-crest="ВГ"] { --color-house: var(--color-house-vega); --color-house-text: var(--color-house-vega-text); }
+[data-crest="ОР"] { --color-house: var(--color-house-orion); --color-house-text: var(--color-house-orion-text); }
+[data-crest="ЛР"] { --color-house: var(--color-house-lyra); --color-house-text: var(--color-house-lyra-text); }
