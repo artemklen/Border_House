@@ -2100,4 +2100,43 @@ describe("замечания ревью", () => {
     const playerRow = rows.find((line) => line.startsWith(player.name))!;
     expect(playerRow).toContain("0 ед.");
   });
+
+  it("следующий сухой корабль заправляется, если первый не дотянется", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const fuel = state.worlds.find((world) => world.id === "w-fuel")!;
+    const beacon = state.worlds.find((world) => world.id === "w-beacon")!;
+    for (const world of state.worlds) {
+      if (world.ownerId !== vega.id) continue;
+      world.stock.food = 400;
+      world.population = 10;
+      for (const building of world.buildings) building.stopReason = null;
+    }
+    state.accounts.goodsCreated.food += 400;
+    const [stuck, ready] = state.ships.filter((ship) => ship.houseId === vega.id).sort((a, b) => (a.id < b.id ? -1 : 1));
+    for (const ship of state.ships) {
+      if (ship.houseId === vega.id && ship.id !== stuck.id && ship.id !== ready.id) ship.status = "building";
+    }
+    stuck.worldId = beacon.id;
+    stuck.fromId = beacon.id;
+    stuck.status = "docked";
+    stuck.cargo.fuel = 0;
+    stuck.stopReason = "нет топлива на следующий перегон";
+    ready.worldId = fuel.id;
+    ready.fromId = fuel.id;
+    ready.status = "docked";
+    ready.cargo.fuel = 0;
+    ready.stopReason = "нет топлива на следующий перегон";
+    planAi(state);
+    const route = state.routes.find((item) => item.houseId === vega.id && item.name.startsWith("Заправка"));
+    expect(route?.name).toBe(`Заправка ${ready.name}`);
+    expect(state.ships.find((ship) => ship.id === ready.id)?.routeId).toBe(route?.id);
+  });
+
+  it("дробное население не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const raw = JSON.parse(serialize(state)) as { state: { worlds: Array<{ population: number }> } };
+    raw.state.worlds[0].population = 0.5;
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
 });

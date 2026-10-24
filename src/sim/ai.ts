@@ -131,7 +131,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     }
   }
 
-  const dry = byId(state.ships).find((ship) => {
+  const dryShips = byId(state.ships).filter((ship) => {
     if (ship.houseId !== house.id || !ship.stopReason?.includes("топлив") || !ship.worldId || ship.status === "transit") return false;
     const route = state.routes.find((item) => item.id === ship.routeId && item.autoFuel);
     if (!route) return true;
@@ -141,11 +141,11 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     const open = !here.ownerId || here.ownerId === house.id || owner?.embargo[house.id] !== true;
     return !(open && here.stock.fuel > 0);
   });
-  const refuelName = dry ? `Заправка ${dry.name}` : "";
-  const alreadyRefueling = dry
-    ? state.routes.some((route) => route.houseId === house.id && route.name === refuelName && state.ships.some((ship) => ship.routeId === route.id))
-    : false;
-  if (dry?.worldId && !alreadyRefueling && !reserved.has(dry.id)) {
+  for (const dry of dryShips) {
+    if (!dry.worldId || reserved.has(dry.id)) continue;
+    const refuelName = `Заправка ${dry.name}`;
+    const alreadyRefueling = state.routes.some((route) => route.houseId === house.id && route.name === refuelName && state.ships.some((ship) => ship.routeId === route.id));
+    if (alreadyRefueling) continue;
     const here = worldOf(state, dry.worldId);
     const reachable = here ? reachableFuelWorld(state, dry, here) : undefined;
     const reserve = 8;
@@ -157,40 +157,40 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
       ? byId(state.worlds).find((world) => world.id !== here.id && (world.ownerId === house.id || (world.ownerId !== null && houseOf(state, world.ownerId)?.embargo[house.id] !== true)))
       : undefined;
     const destination = reachable ?? (gained > 0 ? elsewhere : undefined);
-    if (here && destination) {
-      reserved.add(dry.id);
-      const takeHere = gained > 0;
-      plans.push({
-        command: {
-          type: "createRoute",
-          houseId: house.id,
-          name: refuelName,
-          shipId: dry.id,
-          returnRouteId: state.routes.find((route) => route.id === dry.routeId && route.autoFuel)?.id,
-          stops: [
-            {
-              worldId: here.id,
-              actions: takeHere
-                ? [here.ownerId === house.id
-                  ? { good: "fuel", mode: "load", amount: gained, price: 0, keep: reserve }
-                  : { good: "fuel", mode: "buy", amount: gained, price: 40, keep: reserve }]
-                : [],
-            },
-            {
-              worldId: destination.id,
-              actions: reachable
-                ? [reachable.ownerId === house.id
-                  ? { good: "fuel", mode: "load", amount: 40, price: 0, keep: 20 }
-                  : { good: "fuel", mode: "buy", amount: 30, price: 40, keep: 10 }]
-                : [],
-            },
-          ],
-        },
-        because: reachable
-          ? `${house.name} снимает ${dry.name} с рейса: нет топлива, ближайший достижимый запас на «${reachable.name}».`
-          : `${house.name} заправляет ${dry.name} на «${here.name}»: местного топлива хватает, чтобы сняться с мели.`,
-      });
-    }
+    if (!here || !destination) continue;
+    reserved.add(dry.id);
+    const takeHere = gained > 0;
+    plans.push({
+      command: {
+        type: "createRoute",
+        houseId: house.id,
+        name: refuelName,
+        shipId: dry.id,
+        returnRouteId: state.routes.find((route) => route.id === dry.routeId && route.autoFuel)?.id,
+        stops: [
+          {
+            worldId: here.id,
+            actions: takeHere
+              ? [here.ownerId === house.id
+                ? { good: "fuel", mode: "load", amount: gained, price: 0, keep: reserve }
+                : { good: "fuel", mode: "buy", amount: gained, price: 40, keep: reserve }]
+              : [],
+          },
+          {
+            worldId: destination.id,
+            actions: reachable
+              ? [reachable.ownerId === house.id
+                ? { good: "fuel", mode: "load", amount: 40, price: 0, keep: 20 }
+                : { good: "fuel", mode: "buy", amount: 30, price: 40, keep: 10 }]
+              : [],
+          },
+        ],
+      },
+      because: reachable
+        ? `${house.name} снимает ${dry.name} с рейса: нет топлива, ближайший достижимый запас на «${reachable.name}».`
+        : `${house.name} заправляет ${dry.name} на «${here.name}»: местного топлива хватает, чтобы сняться с мели.`,
+    });
+    break;
   }
 
   for (const route of state.routes) {

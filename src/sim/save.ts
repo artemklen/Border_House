@@ -134,7 +134,7 @@ function assertPlayable(state: SimState): void {
     if (typeof world.x !== "number" || typeof world.y !== "number" || !Number.isFinite(world.x) || !Number.isFinite(world.y)) {
       throw new SaveError("Файл сохранения повреждён: у мира нет координат.");
     }
-    if (typeof world.population !== "number" || typeof world.capacity !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number" || typeof world.popWallet !== "number" || !Number.isInteger(world.popWallet) || world.popWallet < 0 || typeof world.satisfaction !== "number" || !Number.isFinite(world.satisfaction)) {
+    if (typeof world.population !== "number" || !Number.isInteger(world.population) || world.population < 0 || typeof world.capacity !== "number" || typeof world.windowDays !== "number" || typeof world.tariffBps !== "number" || typeof world.popWallet !== "number" || !Number.isInteger(world.popWallet) || world.popWallet < 0 || typeof world.satisfaction !== "number" || !Number.isFinite(world.satisfaction)) {
       throw new SaveError("Файл сохранения повреждён: население или кошелёк мира нечисловые.");
     }
     if (world.foodCredit != null && !requireInt(world.foodCredit, 0, 99)) {
