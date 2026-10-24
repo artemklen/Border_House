@@ -265,6 +265,7 @@ function assignShip(state: SimState, shipId: string, routeId: string | null, kee
   if (!route) return fail("маршрут не найден");
   if (route.houseId !== ship.houseId) return fail("чужой маршрут");
   ship.routeId = route.id;
+  ship.loadWait = 0;
   if (!keepMission) ship.mission = null;
   if (ship.status === "transit") {
     ship.stopIndex = 0;

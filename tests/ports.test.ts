@@ -398,4 +398,65 @@ describe("порт", () => {
     expect(side.stock.parts).toBe(0);
     expect(audit(state).errors).toEqual([]);
   });
+
+  it("минимум загрузки не держит корабль на выгрузке", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const side = state.worlds.find((world) => world.id === "l-side")!;
+    const ship = state.ships[0];
+    ship.worldId = side.id;
+    ship.status = "docked";
+    createGoods(ship.cargo, state.accounts, "ore", 20);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Только выгрузка",
+      shipId: ship.id,
+      minLoad: 20,
+      maxWait: 10,
+      stops: [
+        { worldId: "l-side", actions: [{ good: "ore", mode: "unload", amount: 20, price: 0, keep: 0 }] },
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 20, price: 0, keep: 0 }] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    expect(ship.cargo.ore).toBe(0);
+  });
+
+  it("новое назначение не наследует ожидание прошлого маршрута", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ship = state.ships[0];
+    destroyGoods(state.worlds.find((world) => world.id === "l-ore")!.stock, state.accounts, "ore", 80);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Старый",
+      shipId: ship.id,
+      minLoad: 20,
+      maxWait: 5,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 20, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    ship.loadWait = 5;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Новый",
+      shipId: ship.id,
+      minLoad: 20,
+      maxWait: 2,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 20, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    expect(ship.loadWait).toBe(0);
+    runTicks(state, 1);
+    expect(ship.status).toBe("docked");
+    expect(ship.loadWait).toBe(1);
+  });
 });

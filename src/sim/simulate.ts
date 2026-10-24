@@ -309,7 +309,9 @@ function serviceDock(state: SimState, ship: Ship): void {
     block(ship, "нет топлива на следующий перегон");
     return;
   }
-  if (routeNow && holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity)) return;
+  const pickup = routeNow?.stops.find((stop) => stop.worldId === world.id)?.actions.some((action) => action.good !== "fuel" && (action.mode === "load" || action.mode === "buy"));
+  if (routeNow && !pickup) ship.loadWait = 0;
+  if (routeNow && pickup && holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity)) return;
   if (routeNow) depart(state, ship, routeNow);
 }
 
@@ -528,6 +530,7 @@ function ensureVisit(ship: Ship): void {
   if (ship.visitKey !== key || !Array.isArray(ship.visitMoved)) {
     ship.visitKey = key;
     ship.visitMoved = [];
+    ship.loadWait = 0;
   }
 }
 
