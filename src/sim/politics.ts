@@ -431,7 +431,7 @@ function openSuccession(state: SimState, house: House): void {
 }
 
 function openBrokenContract(state: SimState, house: House): void {
-  const contract = state.contracts.find((item) => item.status === "broken" && item.buyerId === house.id && sellerOwesCompensation(item) && !state.situations.some((situation) => situation.contractId === item.id));
+  const contract = state.contracts.find((item) => item.status === "broken" && item.buyerId === house.id && sellerOwesCompensation(item) && canOpen(state, house.id, "brokenContract", item.sellerId) && !state.situations.some((situation) => situation.contractId === item.id));
   if (!contract) return;
   pushSituation(state, house, {
     kind: "brokenContract",
@@ -516,8 +516,7 @@ function openTariffDispute(state: SimState, house: House): void {
 function openCongestedPort(state: SimState, house: House): void {
   for (const world of state.worlds) {
     if (world.ownerId !== house.id || world.port.queue.length < 2) continue;
-    const ship = foreignShipAt(state, world, house.id);
-    if (!ship) continue;
+    for (const ship of foreignShipsAt(state, world, house.id)) {
     const before = state.situations.length;
     pushSituation(state, house, {
       kind: "congestedPort",
@@ -535,6 +534,7 @@ function openCongestedPort(state: SimState, house: House): void {
       good: "food",
     });
     if (state.situations.length > before) return;
+    }
   }
 }
 
@@ -759,10 +759,6 @@ function foreignShipsAt(state: SimState, world: World, ownerId: string): Ship[] 
     if (ship && ship.houseId !== ownerId) ships.push(ship);
   }
   return ships;
-}
-
-function foreignShipAt(state: SimState, world: World, ownerId: string): Ship | undefined {
-  return foreignShipsAt(state, world, ownerId)[0];
 }
 
 function foreignExport(state: SimState, house: House, route: Route): { world: World; good: GoodId } | undefined {

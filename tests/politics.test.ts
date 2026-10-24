@@ -82,6 +82,16 @@ describe("политические решения", () => {
     expect(state.worlds.reduce((sum, world) => sum + world.stock.food, 0)).toBe(food);
     advanceSituations(state);
     expect(state.situations.filter((item) => item.kind === "brokenContract")).toHaveLength(1);
+    const nextSeller = endowHouse(state, { name: "Второй", color: "#844", crest: "ВТ", profile: "merchant", player: false, credits: 3000 });
+    const nextHome = endowWorld(state, { id: "b-next", name: "Вторая лавка", specialty: "лавка", x: 80, y: 0, ownerId: nextSeller.id, population: 10, popMoneyPerCapita: 2, stock: { food: 20 } });
+    nextSeller.capitalId = nextHome.id;
+    dispatch(state, { type: "proposeContract", sellerId: nextSeller.id, buyerId: buyer.id, good: "food", worldId: buyer.capitalId, qtyPerWindow: 4, windows: 2, price: 10, shortfall: 0, deposit: 10 });
+    const offered = state.contracts.find((item) => item.sellerId === nextSeller.id)!;
+    dispatch(state, { type: "respondContract", houseId: buyer.id, contractId: offered.id, accept: true });
+    offered.status = "broken";
+    offered.delivered = 0;
+    advanceSituations(state);
+    expect(state.situations.some((item) => item.kind === "brokenContract" && item.status === "open" && item.otherId === nextSeller.id)).toBe(true);
     expect(audit(state).ok).toBe(true);
     const intact = brokenCase().state;
     intact.contracts[0].status = "active";
@@ -124,6 +134,15 @@ describe("политические решения", () => {
     dispatch(crowded, { type: "resolveSituation", houseId: player.id, situationId: firstCrowd.id, choice: "refuse" });
     advanceSituations(crowded);
     expect(crowded.situations.some((item) => item.kind === "congestedPort" && item.status === "open" && item.worldId === secondPort.id)).toBe(true);
+    const samePort = crowded.situations.find((item) => item.kind === "congestedPort" && item.status === "open")!;
+    dispatch(crowded, { type: "resolveSituation", houseId: player.id, situationId: samePort.id, choice: "refuse" });
+    const thirdGuest = endowHouse(crowded, { name: "Третий", color: "#484", crest: "ТР", profile: "merchant", player: false, credits: 500 });
+    endowWorld(crowded, { id: "q-third", name: "Дом третьего", specialty: "дом", x: 180, y: 0, ownerId: thirdGuest.id, population: 10, popMoneyPerCapita: 2, stock: { food: 20 } });
+    thirdGuest.capitalId = "q-third";
+    const thirdShip = placeShip(crowded, thirdGuest.id, port, "skiff", 5);
+    port.port.queue = [foreign.id, thirdShip.id];
+    advanceSituations(crowded);
+    expect(crowded.situations.some((item) => item.kind === "congestedPort" && item.status === "open" && item.otherId === thirdGuest.id)).toBe(true);
 
     const exporting = createSkeleton(5, "export");
     exporting.aiEnabled = false;
