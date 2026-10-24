@@ -1957,4 +1957,88 @@ describe("замечания ревью", () => {
     const loaded = deserialize(JSON.stringify(legacy));
     expect(() => runTicks(loaded, 1)).not.toThrow();
   });
+
+  it("колония через маяк не сбрасывает топливо ниже пути", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const bread = state.worlds.find((world) => world.id === "w-bread")!;
+    const ship = placeShip(state, player.id, bread, "barge", 80);
+    dispatch(state, { type: "colonize", houseId: player.id, shipId: ship.id, worldId: "w-bay" });
+    const route = state.routes.find((item) => item.colony)!;
+    dispatch(state, {
+      type: "updateRoute",
+      routeId: route.id,
+      name: route.name,
+      stops: [
+        { worldId: "w-bread", actions: route.stops[0].actions },
+        { worldId: "w-beacon", actions: [] },
+        { worldId: "w-north", actions: [] },
+        { worldId: "w-bay", actions: [] },
+      ],
+    });
+    dispatch(state, { type: "pauseRoute", routeId: route.id, paused: true });
+    runTicks(state, 1);
+    expect(ship.cargo.fuel).toBeGreaterThanOrEqual(59);
+    expect(ship.routeId).toBe(route.id);
+  });
+
+  it("покупка до полного трюма не ждёт денег, которых уже некуда потратить", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    const market = state.worlds.find((world) => world.id === "w-vega")!;
+    for (const world of state.worlds) {
+      world.population = 0;
+      world.tariffBps = 0;
+      for (const building of world.buildings) building.enabled = false;
+    }
+    for (const other of state.ships) {
+      if (other.id === ship.id) continue;
+      other.status = "building";
+      other.remainingDays = 30;
+    }
+    ship.worldId = "w-vega";
+    ship.fromId = "w-vega";
+    ship.tollWorldId = "w-vega";
+    ship.status = "docked";
+    ship.cargo.fuel = 20;
+    ship.cargo.food = 0;
+    market.stock.food = 200;
+    market.prices.food = 10;
+    player.credits = 510;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Полный борт",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-vega", actions: [{ good: "food", mode: "buy", amount: 70, price: 10, keep: 0 }] },
+        { worldId: "w-bread", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.cargo.food).toBe(50);
+    expect(ship.status).toBe("transit");
+    expect(ship.worldId).toBeNull();
+  });
+
+  it("отложенная погрузка объектом не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Еда",
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 8, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    });
+    const raw = JSON.parse(serialize(state)) as { state: { routes: Array<{ pausedFood?: unknown; autoFuel?: boolean }> } };
+    raw.state.routes[0].autoFuel = true;
+    raw.state.routes[0].pausedFood = { length: 1 };
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
 });

@@ -417,8 +417,33 @@ function colonyFuelTarget(state: SimState, ship: Ship): number {
   const here = worldOf(state, ship.worldId);
   const target = ship.mission?.type === "colonize" ? worldOf(state, ship.mission.worldId) : undefined;
   if (!here || !target || here.id === target.id) return Math.min(room, 24);
-  const outbound = Math.max(1, Math.ceil((distance(here, target) * SHIP_CLASSES[ship.classId].fuelPer1000) / 1000));
+  const outbound = fuelAlongRoute(state, ship, here.id, target.id);
   return Math.min(outbound * 2, room);
+}
+
+function fuelAlongRoute(state: SimState, ship: Ship, fromId: string, targetId: string): number {
+  const stops = routeOf(state, ship.routeId)?.stops ?? [];
+  const start = stops.findIndex((stop) => stop.worldId === fromId);
+  const end = stops.findIndex((stop) => stop.worldId === targetId);
+  const direct = () => {
+    const from = worldOf(state, fromId);
+    const target = worldOf(state, targetId);
+    if (!from || !target) return 1;
+    return legFuel(ship, from, target);
+  };
+  if (start < 0 || end <= start) return direct();
+  let fuel = 0;
+  for (let index = start; index < end; index += 1) {
+    const from = worldOf(state, stops[index].worldId);
+    const to = worldOf(state, stops[index + 1].worldId);
+    if (!from || !to || from.id === to.id) continue;
+    fuel += legFuel(ship, from, to);
+  }
+  return Math.max(1, fuel);
+}
+
+function legFuel(ship: Ship, from: World, to: World): number {
+  return Math.max(1, Math.ceil((distance(from, to) * SHIP_CLASSES[ship.classId].fuelPer1000) / 1000));
 }
 
 function colonyLoadActions(state: SimState, ship: Ship): RouteStop["actions"] {

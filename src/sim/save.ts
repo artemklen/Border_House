@@ -152,16 +152,12 @@ function assertPlayable(state: SimState): void {
     if (route.colony != null && typeof route.colony !== "boolean") {
       throw new SaveError("Файл сохранения повреждён: признак колонии повреждён.");
     }
+    if (route.pausedFood != null && (!Array.isArray(route.pausedFood) || !route.pausedFood.every(isTradeAction))) {
+      throw new SaveError("Файл сохранения повреждён: отложенная погрузка повреждена.");
+    }
     for (const stop of route.stops) {
       if (!stop || !worldIds.has(stop.worldId) || !Array.isArray(stop.actions)) throw new SaveError("Файл сохранения повреждён: остановка маршрута неизвестна.");
-      for (const action of stop.actions) {
-        if (!action || !(GOODS as readonly string[]).includes(action.good) || !["load", "unload", "buy", "sell"].includes(action.mode)) {
-          throw new SaveError("Файл сохранения повреждён: действие остановки повреждено.");
-        }
-        if (!Number.isInteger(action.amount) || action.amount <= 0 || !Number.isInteger(action.price) || action.price < 0 || !Number.isInteger(action.keep) || action.keep < 0) {
-          throw new SaveError("Файл сохранения повреждён: действие остановки повреждено.");
-        }
-      }
+      if (!stop.actions.every(isTradeAction)) throw new SaveError("Файл сохранения повреждён: действие остановки повреждено.");
     }
     routeIds.add(route.id);
   }
@@ -199,6 +195,17 @@ function assertPlayable(state: SimState): void {
       throw new SaveError("Файл сохранения повреждён: роль или лояльность человека повреждены.");
     }
   }
+}
+
+function isTradeAction(action: unknown): boolean {
+  if (!action || typeof action !== "object") return false;
+  const item = action as { good?: unknown; mode?: unknown; amount?: unknown; price?: unknown; keep?: unknown };
+  if (typeof item.good !== "string" || !(GOODS as readonly string[]).includes(item.good)) return false;
+  if (typeof item.mode !== "string" || !["load", "unload", "buy", "sell"].includes(item.mode)) return false;
+  const amount = item.amount;
+  const price = item.price;
+  const keep = item.keep;
+  return Number.isInteger(amount) && (amount as number) > 0 && Number.isInteger(price) && (price as number) >= 0 && Number.isInteger(keep) && (keep as number) >= 0;
 }
 
 function requireInt(value: unknown, min: number, max: number): value is number {

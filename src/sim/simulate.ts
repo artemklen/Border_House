@@ -453,7 +453,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     if (action.mode === "sell") route.revenue += qty * price;
     else route.cost += qty * price;
     if (deliveredQty > 0) countDelivery(state, sellerHouse, world, action.good, deliveredQty);
-    if (qty < wanted && affordable <= qty) {
+    if (qty < wanted && affordable <= qty && !(action.mode === "buy" && room <= qty)) {
       ship.stopReason = "у покупателя нет денег";
       hold = true;
     } else if (action.mode === "sell" && qty < wanted && room <= qty) {
