@@ -20,7 +20,7 @@ import {
   tariffBetween,
   worldOf,
 } from "./mutate";
-import { SPEED_PARTS, expandPort } from "./port";
+import { SPEED_PARTS, capPort, expandPort, notePortMove } from "./port";
 import type {
   CommandResult,
   GoalKind,
@@ -103,14 +103,14 @@ export function choicePreview(situation: Situation, choice: SituationChoice): st
   if (situation.kind === "foodDependence" && choice === "pay") {
     return [
       `Сразу купить ${situation.qty} ${GOOD_NAME[situation.good]} на корабль у склада контрагента за ${situation.cost} кред.`,
-      "Нужны свободные кредиты, товар на складе, свой корабль у этого мира и открытый доступ. Иначе приказ не исполняется и деньги не уходят.",
+      "Нужны свободные кредиты, товар на складе, свой корабль у причала и открытый доступ. Дневной лимит порта должен вмещать партию. Иначе приказ не исполняется и деньги не уходят.",
       once,
     ];
   }
   if (situation.kind === "tariffDispute" && choice === "yield") {
     return [
       `Продать гостю ${situation.qty} продовольствия за ${situation.cost} кред. и держать для него пошлину ${situation.tariffBps / 100}% ещё ${situation.days} дн.`,
-      "Товар списывается с нашего склада в его трюм. Отношения +8. Без корабля, еды, его денег или при эмбарго уступка не исполняется.",
+      "Товар списывается с нашего склада в его трюм и занимает дневной лимит причала. Отношения +8. Без места у причала, еды, его денег или при эмбарго уступка не исполняется.",
       lasting,
     ];
   }
@@ -374,9 +374,18 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
   if (situation.kind === "successionReview" && choice === "yield") {
     const treaty = state.treaties.find((item) => item.id === situation.treatyId);
     if (!treaty || treaty.status !== "active") return "договор уже не действует";
+    const previousEnd = treaty.endTick;
     treaty.endTick += situation.days;
     treaty.duration = Math.min(360, treaty.duration + situation.days);
     treaty.tariffBps = Math.min(treaty.tariffBps, situation.tariffBps);
+    if (treaty.kind === "supply") {
+      for (const grant of state.tariffGrants) {
+        if (grant.ownerId !== treaty.targetId || grant.beneficiaryId !== treaty.proposerId) continue;
+        if (grant.untilTick <= state.tick || grant.untilTick > previousEnd) continue;
+        grant.untilTick = treaty.endTick;
+        grant.bps = Math.min(grant.bps, treaty.tariffBps);
+      }
+    }
     if (other) shiftRelation(state, house.id, other.id, 4);
     note(state, house.id, `${SITUATION_LABEL[situation.kind]}: договор продлён на ${situation.days} дн., пошлина не выше ${situation.tariffBps / 100}%. Отношения +4.`);
     return null;
@@ -413,7 +422,7 @@ function openSuccession(state: SimState, house: House): void {
 }
 
 function openBrokenContract(state: SimState, house: House): void {
-  const contract = state.contracts.find((item) => item.status === "broken" && item.buyerId === house.id && !state.situations.some((situation) => situation.contractId === item.id));
+  const contract = state.contracts.find((item) => item.status === "broken" && item.buyerId === house.id && sellerOwesCompensation(item) && !state.situations.some((situation) => situation.contractId === item.id));
   if (!contract) return;
   pushSituation(state, house, {
     kind: "brokenContract",
@@ -597,6 +606,16 @@ function recordSale(state: SimState, buyer: House, seller: House, amount: number
   return true;
 }
 
+function sellerOwesCompensation(contract: { note: string }): boolean {
+  return !contract.note.includes("свободных кредитов");
+}
+
+function portCargoBlock(world: World, ship: Ship, qty: number): string | null {
+  if (!world.port.berth.includes(ship.id)) return "корабль не стоит у причала";
+  if (ship.portAllowance - ship.portMoved < qty) return "лимит порта на сегодня исчерпан";
+  return null;
+}
+
 function liveShip(state: SimState, ownerId: string, situation: Situation): Ship | undefined {
   const worldId = situation.worldId;
   if (!worldId) return undefined;
@@ -618,6 +637,8 @@ function cargoPurchaseBlock(state: SimState, buyer: House, seller: House | undef
   if (!world || world.ownerId !== seller.id) return "склад продавца недоступен";
   if (accessDenied(state, buyer.id, world)) return "эмбарго закрывает склад";
   if (!ship) return "свой корабль уже не стоит у склада";
+  const portBlock = portCargoBlock(world, ship, situation.qty);
+  if (portBlock) return portBlock;
   if (world.stock[situation.good] < situation.qty) return `на складе меньше ${situation.qty} ${GOOD_NAME[situation.good]}`;
   if (SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) < situation.qty) return "в трюме нет места";
   if (availableCredits(buyer) < situation.cost) return `нужно ${situation.cost} свободных кредитов`;
@@ -630,6 +651,8 @@ function moveCargoPurchase(state: SimState, buyer: House, seller: House | undefi
   const world = worldOf(state, situation.worldId)!;
   const ship = liveShip(state, buyer.id, situation)!;
   if (!recordSale(state, buyer, seller, situation.cost)) return `нужно ${situation.cost} свободных кредитов`;
+  capPort(ship, situation.qty);
+  notePortMove(world, routeOf(state, ship.routeId), situation.qty);
   destroyGoods(world.stock, state.accounts, situation.good, situation.qty);
   createGoods(ship.cargo, state.accounts, situation.good, situation.qty);
   rememberSupply(ship, situation.good, seller.id, situation.qty);
@@ -643,6 +666,8 @@ function visitorSaleBlock(state: SimState, seller: House, buyer: House | undefin
   if (!world || world.ownerId !== seller.id) return "нет нашего порта";
   if (accessDenied(state, buyer.id, world)) return "эмбарго закрывает порт";
   if (!ship || ship.houseId !== buyer.id || ship.worldId !== world.id || ship.status === "transit" || ship.status === "building") return "корабль гостя уже ушёл";
+  const portBlock = portCargoBlock(world, ship, situation.qty);
+  if (portBlock) return portBlock;
   if (world.stock.food < situation.qty) return `на складе меньше ${situation.qty} продовольствия`;
   if (SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) < situation.qty) return "в трюме гостя нет места";
   if (availableCredits(buyer) < situation.cost) return "у гостя нет денег на продовольствие";
@@ -655,6 +680,8 @@ function sellToVisitor(state: SimState, seller: House, buyer: House, situation: 
   const world = worldOf(state, situation.worldId)!;
   const ship = liveShip(state, buyer.id, situation)!;
   if (!recordSale(state, buyer, seller, situation.cost)) return "у гостя нет денег на продовольствие";
+  capPort(ship, situation.qty);
+  notePortMove(world, routeOf(state, ship.routeId), situation.qty);
   destroyGoods(world.stock, state.accounts, "food", situation.qty);
   createGoods(ship.cargo, state.accounts, "food", situation.qty);
   rememberSupply(ship, "food", seller.id, situation.qty);

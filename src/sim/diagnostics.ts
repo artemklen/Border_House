@@ -1,5 +1,6 @@
 import { dispatch } from "./commands";
 import { createSkeleton, endowHouse, endowWorld, placeBuilding, placeFamily, placeShip } from "./create";
+import { effectiveThroughput } from "./port";
 import { advanceSituations } from "./politics";
 import type { SimState } from "./types";
 
@@ -272,6 +273,8 @@ export function createCrisisScenario(seed = 12): SimState {
   port.port.berth = [ship.id];
   ship.worldId = port.id;
   ship.status = "docked";
+  ship.portAllowance = effectiveThroughput(port.port);
+  ship.portMoved = 0;
   advanceSituations(state);
   return state;
 }

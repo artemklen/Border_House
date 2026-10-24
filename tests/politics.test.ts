@@ -32,6 +32,8 @@ describe("политические решения", () => {
     expect(yes.ok).toBe(true);
     expect(port.stock.food).toBe(foodBefore - 10);
     expect(ship.cargo.food).toBe(10);
+    expect(ship.portMoved).toBe(10);
+    expect(port.port.handled).toBe(10);
     expect(player.credits).toBe(creditsBefore + 120);
     expect(player.flow.sales).toBe(120);
     expect(player.flow.compensation).toBe(0);
@@ -311,6 +313,8 @@ describe("политические решения", () => {
     advanceSituations(state);
     expect(state.situations[0].shipId).toBeNull();
     const ship = placeShip(state, buyer.id, warehouse, "freighter", 0);
+    warehouse.port.berth = [ship.id];
+    ship.portAllowance = 80;
     const paid = dispatch(state, { type: "resolveSituation", houseId: buyer.id, situationId: state.situations[0].id, choice: "pay" });
     expect(paid.ok).toBe(true);
     expect(ship.cargo.food).toBe(10);
@@ -396,6 +400,61 @@ describe("политические решения", () => {
     const tariffRefusal = choicePreview(blocked.situations[0], "refuse").join(" ");
     expect(tariffRefusal).toContain("не сгорает");
     expect(tariffRefusal).not.toContain("Срок эффекта");
+
+    const queued = createCrisisScenario();
+    const queuePort = queued.worlds.find((world) => world.id === "c-port")!;
+    const queuedShip = queued.ships[0];
+    queuePort.port.berth = [];
+    queuePort.port.queue = [queuedShip.id];
+    queuedShip.portAllowance = 0;
+    queuedShip.portMoved = 0;
+    const queuedFood = queuePort.stock.food;
+    const waiting = dispatch(queued, { type: "resolveSituation", houseId: queued.houses[0].id, situationId: queued.situations[0].id, choice: "yield" });
+    expect(waiting.ok).toBe(false);
+    expect(queuePort.stock.food).toBe(queuedFood);
+    expect(queued.houses[0].credits).toBe(6000);
+
+    const broke = brokenCase();
+    const deal = broke.state.contracts[0];
+    deal.status = "active";
+    deal.windows = 2;
+    deal.windowIndex = 0;
+    deal.windowDays = broke.state.rules.window - 1;
+    deal.delivered = deal.qtyPerWindow;
+    deal.buyerReserve = 0;
+    deal.deposit = 20;
+    broke.buyer.credits = 0;
+    broke.buyer.reserved = 0;
+    for (const world of broke.state.worlds) world.popWallet = 0;
+    const sellerCredits = broke.seller.credits;
+    runTicks(broke.state, 1);
+    expect(broke.state.contracts[0].status).toBe("broken");
+    expect(broke.state.contracts[0].note).toContain("свободных кредитов");
+    expect(broke.state.situations.some((item) => item.kind === "brokenContract")).toBe(false);
+    expect(broke.seller.credits).toBe(sellerCredits);
+
+    const renewed = successionCase(true);
+    const old = renewed.treaties[0];
+    old.kind = "supply";
+    old.endTick = 24;
+    old.duration = 24;
+    old.tariffBps = 200;
+    old.proposerId = renewed.houses[1].id;
+    old.targetId = renewed.houses[0].id;
+    renewed.tariffGrants.push({
+      id: "g-old",
+      worldId: renewed.houses[0].capitalId ?? "",
+      ownerId: old.targetId,
+      beneficiaryId: old.proposerId,
+      bps: 200,
+      untilTick: 24,
+    });
+    runTicks(renewed, 1);
+    const review = renewed.situations.find((item) => item.kind === "successionReview")!;
+    dispatch(renewed, { type: "resolveSituation", houseId: renewed.houses[0].id, situationId: review.id, choice: "yield" });
+    expect(old.endTick).toBe(48);
+    expect(renewed.tariffGrants[0].untilTick).toBe(old.endTick);
+    expect(tariffBetween(renewed, old.proposerId, old.targetId, 900, renewed.houses[0].capitalId)).toBe(200);
   });
 });
 
