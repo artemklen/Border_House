@@ -2,6 +2,7 @@ import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, GOOD_NAME, type GoodId } from "./goods";
 import { foodCover, foodNeed, houseOf, personOf, routeOf, worldOf } from "./mutate";
 import { nextStopIndex, territoriesOnRoute } from "./simulate";
+import { plannedBatch } from "./specialty";
 import type { House, Ship, SimState, World } from "./types";
 
 export function foodPerDay(population: number, foodPer100: number): number {
@@ -63,10 +64,11 @@ export function explainBuilding(state: SimState, buildingId: string): string {
     if (!building) continue;
     const recipe = RECIPES[building.kind];
     if (building.remainingDays > 0) return `${recipe.name} строится ещё ${building.remainingDays} дн. Пока стройка идёт, выпуска нет.`;
-    const inputs = GOODS.filter((good) => recipe.inputs[good]).map((good) => `${recipe.inputs[good]} ${GOOD_NAME[good]}`).join(", ") || "без сырья";
-    const outputs = GOODS.filter((good) => recipe.outputs[good]).map((good) => `${recipe.outputs[good]} ${GOOD_NAME[good]}`).join(", ");
+    const batch = plannedBatch(world, recipe);
+    const inputs = GOODS.filter((good) => batch.inputs[good]).map((good) => `${batch.inputs[good]} ${GOOD_NAME[good]}`).join(", ") || "без сырья";
+    const outputs = GOODS.filter((good) => batch.outputs[good]).map((good) => `${batch.outputs[good]} ${GOOD_NAME[good]}`).join(", ");
     const reason = building.stopReason ? `Сейчас стоит: ${building.stopReason}.` : "Полная партия идёт.";
-    return `${recipe.name}: ${inputs} → ${outputs} за день. Нужно работников: ${recipe.workers}, на месте ${building.workers}. Содержание ${recipe.upkeep} кред./день уходит в сток «содержание», зарплата ${state.rules.wage} кред. за человека переходит населению. ${reason}`;
+    return `${recipe.name}: ${inputs} → ${outputs} за день. Нужно работников: ${batch.workers}, на месте ${building.workers}. Содержание ${recipe.upkeep} кред./день уходит в сток «содержание», зарплата ${state.rules.wage} кред. за человека переходит населению. ${reason}`;
   }
   return "Предприятие не найдено.";
 }

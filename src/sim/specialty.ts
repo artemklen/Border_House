@@ -208,7 +208,7 @@ export function developmentIdea(state: SimState, houseId: string): { command: { 
     const ranked = (Object.entries(scores) as Array<[DevelopmentPath, number]>).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
     for (const [path, score] of ranked) {
       if (score <= 0) continue;
-      if (used.has(path) && ranked.some(([other, value]) => other !== path && value > 0 && !used.has(other))) continue;
+      if (used.has(path) && ranked.some(([other, value]) => other !== path && value > 0 && !used.has(other) && !developmentBlock(state, houseId, world.id, other))) continue;
       if (developmentBlock(state, houseId, world.id, path)) continue;
       if (!best || score > best.score) best = { world, path, score };
       break;

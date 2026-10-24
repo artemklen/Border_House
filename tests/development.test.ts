@@ -5,9 +5,10 @@ import { SHIP_CLASSES } from "../src/sim/config";
 import { createSkeleton, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
 import { createGrainScenario, createLogisticsScenario } from "../src/sim/diagnostics";
 import { audit, createGoods, destroyGoods, distance, hashState } from "../src/sim/mutate";
+import { explainBuilding } from "../src/sim/view";
 import { effectiveThroughput } from "../src/sim/port";
 import { deserialize, serialize } from "../src/sim/save";
-import { transitThroughputBonus } from "../src/sim/specialty";
+import { developmentIdea, transitThroughputBonus } from "../src/sim/specialty";
 import { runTicks } from "../src/sim/simulate";
 
 describe("развитие миров", () => {
@@ -288,5 +289,55 @@ describe("развитие миров", () => {
     expect(house.flow.construction).toBe(0);
     dispatch(state, { type: "cancelDevelopment", houseId: house.id, worldId: field.id });
     expect(house.flow.construction).toBe(-800);
+  });
+
+  it("ИИ берёт уже занятый путь, если запасной сейчас недоступен", () => {
+    const state = createSkeleton(7, "merchant-path");
+    const player = endowHouse(state, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 1000 });
+    endowWorld(state, { id: "p-home", name: "Дом", specialty: "дом", x: 0, y: 400, ownerId: player.id, population: 20, popMoneyPerCapita: 2, stock: { food: 40 } });
+    const ai = endowHouse(state, { name: "Купцы", color: "#48a", crest: "КП", profile: "merchant", player: false, credits: 20000 });
+    const taken = endowWorld(state, {
+      id: "m-old",
+      name: "Старое поле",
+      specialty: "поле",
+      x: 0,
+      y: 0,
+      ownerId: ai.id,
+      population: 40,
+      popMoneyPerCapita: 4,
+      stock: { grain: 40, food: 40, parts: 20 },
+    });
+    const fresh = endowWorld(state, {
+      id: "m-new",
+      name: "Новое поле",
+      specialty: "поле",
+      x: 200,
+      y: 0,
+      ownerId: ai.id,
+      population: 40,
+      popMoneyPerCapita: 4,
+      stock: { grain: 40, food: 40, parts: 20 },
+    });
+    ai.capitalId = taken.id;
+    placeBuilding(state, taken, ai.id, "farm");
+    placeBuilding(state, fresh, ai.id, "farm");
+    taken.development = { path: "agrarian", level: 2, suspended: false, invested: 4000, project: null, upkeepPaid: true };
+    const idea = developmentIdea(state, ai.id);
+    expect(idea?.command.worldId).toBe(fresh.id);
+    expect(idea?.command.path).toBe("agrarian");
+  });
+
+  it("пояснение плавильни показывает штат и выпуск с бонусом пути", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    ore.development = { path: "industrial", level: 1, suspended: false, invested: 2000, project: null, upkeepPaid: true };
+    placeBuilding(state, ore, house.id, "smelter");
+    const building = ore.buildings.find((item) => item.kind === "smelter")!;
+    building.workers = 14;
+    building.stopReason = "не хватает работников";
+    const text = explainBuilding(state, building.id);
+    expect(text).toContain("8 руда → 6 сплавы");
+    expect(text).toContain("Нужно работников: 16, на месте 14");
   });
 });
