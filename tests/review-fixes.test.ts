@@ -3,12 +3,13 @@ import { planAi } from "../src/sim/ai";
 import { createClock, planFrame } from "../src/sim/clock";
 import { dispatch } from "../src/sim/commands";
 import { createGame, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
-import { createExpansionScenario, createIndustryScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
+import { createExpansionScenario, createGrainScenario, createIndustryScenario, createLogisticsScenario, createSuccessionScenario } from "../src/sim/diagnostics";
 import { sumGoods } from "../src/sim/goods";
 import { audit, foodCover, hashState } from "../src/sim/mutate";
 import { deserialize, SaveError, serialize, storeSave } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
 import { bottlenecks, colonyShip, dependencyRows, explainShip, fleetCommandShipId, fleetPickId, foodPerDay, keptOtherHouseId, keptShipId, keptWorldId, pickMapTarget } from "../src/sim/view";
+import { frameCamera, project } from "../src/ui/drawMap";
 
 describe("замечания ревью", () => {
   it("сохранение без маршрутов или трюма не подменяет партию", () => {
@@ -2248,5 +2249,25 @@ describe("замечания ревью", () => {
     const raw = JSON.parse(serialize(state)) as { state: { treaties: Array<{ duration?: number }> } };
     delete raw.state.treaties[0].duration;
     expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
+
+  it("дробный день не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const raw = JSON.parse(serialize(state)) as { state: { tick: number } };
+    raw.state.tick = 0.5;
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
+
+  it("узкий холст держит проверочные миры в кадре", () => {
+    for (const state of [createGrainScenario(), createSuccessionScenario(9, false)]) {
+      const camera = frameCamera(state.worlds, 390, 320);
+      for (const world of state.worlds) {
+        const point = project(camera, 390, 320, world.x, world.y);
+        expect(point.x).toBeGreaterThan(8);
+        expect(point.x).toBeLessThan(382);
+        expect(point.y).toBeGreaterThan(8);
+        expect(point.y).toBeLessThan(312);
+      }
+    }
   });
 });

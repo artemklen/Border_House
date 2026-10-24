@@ -40,7 +40,7 @@ export function deserialize(raw: string): SimState {
   const file = parsed as { version?: unknown; state?: SimState };
   if (file.version !== 1) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает только версию 1.");
   const state = file.state;
-  if (!state || typeof state.tick !== "number" || typeof state.rngState !== "number") {
+  if (!state || !Number.isInteger(state.tick) || state.tick < 0 || typeof state.rngState !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   }
   assertPlayable(state);

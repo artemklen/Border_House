@@ -28,7 +28,7 @@ import {
   pickMapTarget,
   worldOwnerName,
 } from "../sim/view";
-import { drawMap, unproject, type Camera } from "./drawMap";
+import { drawMap, frameCamera, unproject, type Camera } from "./drawMap";
 
 const AUTOSAVE_KEY = "border-house.autosave.v1";
 const TABS = [
@@ -89,13 +89,22 @@ export function App() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
+    const place = () => {
+      if (!simRef.current || canvas.clientWidth < 2) return;
+      cameraRef.current = frameCamera(simRef.current.worlds, canvas.clientWidth, canvas.clientHeight);
+    };
+    place();
+    const frame = requestAnimationFrame(place);
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const next = cameraRef.current.zoom * (event.deltaY > 0 ? 0.9 : 1.1);
       cameraRef.current.zoom = Math.max(0.28, Math.min(2.2, next));
     };
     canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => canvas.removeEventListener("wheel", onWheel);
+    return () => {
+      cancelAnimationFrame(frame);
+      canvas.removeEventListener("wheel", onWheel);
+    };
   }, [mapReady]);
 
   useEffect(() => {
@@ -164,7 +173,8 @@ export function App() {
     setStopWorld(keptWorldId(next.worlds, ""));
     setDraftStops([]);
     setConfirm(null);
-    cameraRef.current = { x: 560, y: 380, zoom: 0.68 };
+    const canvas = canvasRef.current;
+    cameraRef.current = frameCamera(next.worlds, canvas?.clientWidth ?? 0, canvas?.clientHeight ?? 0);
   }
 
   function act(command: Command) {

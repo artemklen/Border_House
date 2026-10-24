@@ -22,6 +22,28 @@ export function unproject(camera: Camera, width: number, height: number, x: numb
   };
 }
 
+/** Ставит камеру на середину миров так, чтобы они помещались в текущий холст. */
+export function frameCamera(worlds: Array<{ x: number; y: number }>, width: number, height: number): Camera {
+  if (worlds.length === 0 || width < 2 || height < 2) return { x: 560, y: 380, zoom: 0.68 };
+  let minX = worlds[0].x;
+  let maxX = worlds[0].x;
+  let minY = worlds[0].y;
+  let maxY = worlds[0].y;
+  for (const world of worlds) {
+    minX = Math.min(minX, world.x);
+    maxX = Math.max(maxX, world.x);
+    minY = Math.min(minY, world.y);
+    maxY = Math.max(maxY, world.y);
+  }
+  const spanX = Math.max(160, maxX - minX + 120);
+  const spanY = Math.max(160, maxY - minY + 120);
+  return {
+    x: (minX + maxX) / 2,
+    y: (minY + maxY) / 2,
+    zoom: Math.max(0.28, Math.min(2.2, Math.min(width / spanX, height / spanY))),
+  };
+}
+
 export function drawMap(canvas: HTMLCanvasElement, state: SimState, camera: Camera, selectedId: string | null): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
