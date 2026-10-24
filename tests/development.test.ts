@@ -435,6 +435,30 @@ describe("развитие миров", () => {
     expect(route.stops[0].actions.find((action) => action.good === "fuel")?.amount).toBe(4);
   });
 
+  it("запас до продовольственного порта не считает скидку будущего выхода", () => {
+    const state = createSkeleton(10, "future-pickup");
+    const house = endowHouse(state, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 8000 });
+    const away = endowWorld(state, { id: "f-away", name: "Даль", specialty: "склад", x: 0, y: 500, ownerId: house.id, population: 20, popMoneyPerCapita: 2, stock: { fuel: 80 } });
+    const origin = endowWorld(state, { id: "f-from", name: "Узел", specialty: "порт", x: 0, y: 0, ownerId: house.id, population: 20, popMoneyPerCapita: 2, stock: { food: 40 } });
+    const dest = endowWorld(state, { id: "f-to", name: "Поле", specialty: "поле", x: 500, y: 0, ownerId: house.id, population: 20, popMoneyPerCapita: 2, stock: { food: 10 } });
+    house.capitalId = origin.id;
+    origin.development = { path: "transit", level: 2, suspended: false, invested: 3400, project: null, upkeepPaid: true };
+    const ship = placeShip(state, house.id, away, "freighter", 40);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Еда с узла",
+      shipId: ship.id,
+      autoFuel: true,
+      stops: [
+        { worldId: origin.id, actions: [{ good: "food", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: dest.id, actions: [{ good: "food", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+      ],
+    });
+    expect(foodReturnFuel(state, ship, state.routes[0], away)).toBe(42);
+    expect(foodReturnFuel(state, ship, state.routes[0], origin)).toBe(26);
+  });
+
   it("ИИ не закладывает один путь на двух мирах, пока первая стройка идёт", () => {
     const state = createSkeleton(9, "pending-path");
     const player = endowHouse(state, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 1000 });
