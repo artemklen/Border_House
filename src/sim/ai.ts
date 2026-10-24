@@ -366,7 +366,7 @@ export function foodRouteNeedsFuel(state: SimState, ship: Ship, route: Route): b
   const origin = worldOf(state, ship.worldId);
   const dest = worldOf(state, there.worldId);
   if (!origin || !dest) return false;
-  const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
+  const voyage = fuelForLeg(ship, origin, dest) + rawLegFuel(ship, dest, origin);
   return ship.cargo.fuel < voyage;
 }
 
@@ -379,7 +379,7 @@ export function foodReturnFuel(state: SimState, ship: Ship, route: Route, from: 
   const origin = worldOf(state, pickup.worldId);
   const dest = worldOf(state, other.worldId);
   if (!origin || !dest) return 0;
-  const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
+  const voyage = fuelForLeg(ship, origin, dest) + rawLegFuel(ship, dest, origin);
   const back = from.id !== origin.id ? fuelForLeg(ship, from, origin) : 0;
   return voyage + back;
 }
@@ -422,10 +422,13 @@ function foodSource(state: SimState, house: House, dest: World): World | undefin
     .sort((a, b) => a.prices.food - b.prices.food || a.x - b.x)[0];
 }
 
-function fuelForLeg(ship: Ship, from: World, to: World): number {
+function rawLegFuel(ship: Ship, from: World, to: World): number {
   const shipClass = SHIP_CLASSES[ship.classId];
-  const raw = Math.max(1, Math.ceil((distance(from, to) * shipClass.fuelPer1000) / 1000));
-  return Math.max(1, raw - transitFuelDiscount(from, ship.houseId));
+  return Math.max(1, Math.ceil((distance(from, to) * shipClass.fuelPer1000) / 1000));
+}
+
+function fuelForLeg(ship: Ship, from: World, to: World): number {
+  return Math.max(1, rawLegFuel(ship, from, to) - transitFuelDiscount(from, ship.houseId));
 }
 
 function reachableFuelWorld(state: SimState, ship: Ship, here: World): World | undefined {

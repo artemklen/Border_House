@@ -202,7 +202,11 @@ export function developmentIdea(state: SimState, houseId: string): { command: { 
   const house = houseOf(state, houseId);
   if (!house) return null;
   const owned = state.worlds.filter((world) => world.ownerId === house.id);
-  const used = new Set(owned.map((world) => world.development?.path).filter((path): path is DevelopmentPath => Boolean(path)));
+  const used = new Set<DevelopmentPath>();
+  for (const world of owned) {
+    if (world.development?.path) used.add(world.development.path);
+    if (world.development?.project) used.add(world.development.project.path);
+  }
   let best: { world: World; path: DevelopmentPath; score: number } | null = null;
   for (const world of owned) {
     if (world.development?.project || (world.development?.level ?? 0) >= 2) continue;

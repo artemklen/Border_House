@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planAi } from "../src/sim/ai";
+import { foodReturnFuel, planAi } from "../src/sim/ai";
 import { dispatch } from "../src/sim/commands";
 import { SHIP_CLASSES } from "../src/sim/config";
 import { createSkeleton, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
@@ -408,5 +408,69 @@ describe("развитие миров", () => {
     const started = dispatch(state, { type: "developWorld", houseId: house.id, worldId: field.id, path: "agrarian" });
     expect(started.ok).toBe(true);
     expect(field.stock.parts).toBe(4);
+  });
+
+  it("запас обратного продовольственного рейса не опирается на сегодняшнюю скидку порта назначения", () => {
+    const state = createSkeleton(8, "return-fuel");
+    const house = endowHouse(state, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 8000 });
+    const origin = endowWorld(state, { id: "f-from", name: "Поле", specialty: "поле", x: 0, y: 0, ownerId: house.id, population: 20, popMoneyPerCapita: 2, stock: { food: 40, fuel: 40 } });
+    const dest = endowWorld(state, { id: "f-to", name: "Узел", specialty: "порт", x: 50, y: 0, ownerId: house.id, population: 20, popMoneyPerCapita: 2, stock: { food: 10 } });
+    house.capitalId = origin.id;
+    dest.development = { path: "transit", level: 1, suspended: false, invested: 1400, project: null, upkeepPaid: true };
+    const ship = placeShip(state, house.id, origin, "freighter", 0);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Еда к узлу",
+      shipId: ship.id,
+      autoFuel: true,
+      stops: [
+        { worldId: origin.id, actions: [{ good: "food", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: dest.id, actions: [{ good: "food", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+      ],
+    });
+    expect(foodReturnFuel(state, ship, state.routes[0], origin)).toBe(4);
+  });
+
+  it("ИИ не закладывает один путь на двух мирах, пока первая стройка идёт", () => {
+    const state = createSkeleton(9, "pending-path");
+    const player = endowHouse(state, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 1000 });
+    endowWorld(state, { id: "p-home", name: "Дом", specialty: "дом", x: 0, y: 400, ownerId: player.id, population: 20, popMoneyPerCapita: 2, stock: { food: 40 } });
+    const ai = endowHouse(state, { name: "Мастер", color: "#48a", crest: "МС", profile: "industrial", player: false, credits: 30000 });
+    const first = endowWorld(state, {
+      id: "p-a",
+      name: "Первый",
+      specialty: "руда и поля",
+      x: 0,
+      y: 0,
+      ownerId: ai.id,
+      population: 80,
+      popMoneyPerCapita: 4,
+      stock: { grain: 40, food: 40, ore: 40, parts: 20, fuel: 20 },
+      deposits: { ore: 80 },
+    });
+    const second = endowWorld(state, {
+      id: "p-b",
+      name: "Второй",
+      specialty: "руда и поля",
+      x: 200,
+      y: 0,
+      ownerId: ai.id,
+      population: 80,
+      popMoneyPerCapita: 4,
+      stock: { grain: 40, food: 40, ore: 40, parts: 20, fuel: 20 },
+      deposits: { ore: 80 },
+    });
+    ai.capitalId = first.id;
+    for (const world of [first, second]) {
+      placeBuilding(state, world, ai.id, "farm");
+      placeBuilding(state, world, ai.id, "smelter");
+    }
+    const idea = developmentIdea(state, ai.id);
+    expect(idea?.command.path).toBe("industrial");
+    expect(dispatch(state, idea!.command).ok).toBe(true);
+    const next = developmentIdea(state, ai.id);
+    expect(next?.command.worldId).toBe(second.id);
+    expect(next?.command.path).toBe("agrarian");
   });
 });
