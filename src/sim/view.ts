@@ -184,8 +184,7 @@ function firstVoyageHint(state: SimState, player: House): string {
   const market = markets.find((world) => world.id !== pantry?.id);
   const shipWord = state.ships.some((ship) => ship.houseId === player.id && ship.classId === "freighter") ? "грузовоз" : "корабль";
   if (!pantry) return `Откройте «Флот», соберите маршрут из двух миров и назначьте ${shipWord}.`;
-  const bakes = pantry.buildings.some((building) => (building.kind === "mill" || building.kind === "farm") && building.remainingDays <= 0) && (pantry.stock.food > 0 || pantry.stock.grain > 0);
-  const stockLine = bakes
+  const stockLine = bakesFood(pantry)
     ? `«${pantry.name}» уже печёт продовольствие.`
     : pantry.stock.food > 0
       ? `«${pantry.name}» держит продовольствие.`
@@ -194,8 +193,18 @@ function firstVoyageHint(state: SimState, player: House): string {
   if (!market) return line;
   const gates = territoriesOnRoute(state, pantry.id, market.id, player.id);
   if (gates.length > 0) line += ` Короткий путь к «${market.name}» пересекает ${gates.map((world) => `«${world.name}»`).join(" и ")}.`;
-  else line += ` Чужой рынок с коротким запасом — «${market.name}».`;
+  else if (foodCover(market.population, market.stock.food, state.rules.foodPer100) < 16) line += ` Чужой рынок с коротким запасом — «${market.name}».`;
+  else line += ` Чужой рынок — «${market.name}».`;
   return line;
+}
+
+function bakesFood(world: World): boolean {
+  return world.buildings.some((building) => {
+    if (building.remainingDays > 0) return false;
+    const recipe = RECIPES[building.kind];
+    if ((recipe.outputs.food ?? 0) <= 0) return false;
+    return GOODS.every((good) => world.stock[good] >= (recipe.inputs[good] ?? 0));
+  });
 }
 
 export function fleetPickId(ship: { id: string; houseId: string; status: string }, playerId: string): string | null {

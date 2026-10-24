@@ -231,6 +231,20 @@ describe("подсказка первого рейса", () => {
       expect(hint).not.toContain("Застава Корвус");
     }
   });
+
+  it("не называет выпечкой ферму и коротким запас, которого хватает на сотни дней", () => {
+    const generated = createGame({ seed: 9, scenario: "generated", worlds: 12, houses: 3 });
+    const baked = hintLines(generated).join(" ").match(/«([^»]+)» уже печёт/);
+    if (baked) {
+      const world = generated.worlds.find((item) => item.name === baked[1]);
+      expect(world?.buildings.some((building) => building.kind === "mill" && building.remainingDays <= 0 && world.stock.grain >= 10)).toBe(true);
+    }
+    const industry = hintLines(createIndustryDependenceScenario()).join(" ");
+    expect(industry).toContain("«Рудник» держит продовольствие");
+    expect(industry).toContain("Чужой рынок — «Нива»");
+    expect(industry).not.toContain("печёт");
+    expect(industry).not.toContain("коротким запасом");
+  });
 });
 
 function quotedNames(text: string): string[] {
