@@ -255,12 +255,13 @@ function sortQueue(state: SimState, port: Port): void {
 }
 
 function reasonKeepsItsText(reason: string): boolean {
-  return reason.startsWith("нет топлива") || reason.startsWith("не хватает денег на транзитную") || reason.startsWith("нет доступа к следующей") || reason.startsWith("нет доступа: маршрут") || reason.startsWith("колониальный набор") || reason.startsWith("ждём загрузку") || reason.startsWith("минимум ");
+  return reason.startsWith("нет топлива") || reason.startsWith("не хватает денег на транзитную") || reason.startsWith("нет доступа к следующей") || reason.startsWith("нет доступа: маршрут") || reason.startsWith("колониальный набор") || reason.startsWith("ждём загрузку") || reason.startsWith("минимум ") || reason.startsWith("для колонии не хватает");
 }
 
 function berthMustYield(_state: SimState, world: World, ship: Ship): boolean {
   const reason = ship.stopReason ?? "";
   if (reason.startsWith("нет топлива")) return world.port.queue.length > 0;
+  if (reason.startsWith("для колонии не хватает")) return world.port.queue.length > 0;
   if (reason.startsWith("колониальный набор") || reason.startsWith("ждём загрузку") || reason.startsWith("минимум ")) return world.port.queue.length > 0 && ship.portMoved === 0;
   if (reason.startsWith("не хватает денег на транзитную") || reason.startsWith("нет доступа к следующей") || reason.startsWith("нет доступа: маршрут")) return true;
   return ship.portMoved === 0 && berthIsStuck(reason);

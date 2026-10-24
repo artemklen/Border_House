@@ -291,7 +291,7 @@ function serviceDock(state: SimState, ship: Ship): void {
       }
     }
   }
-  if (hold || stuck) return;
+  if (stuck) return;
   const routeNow = routeOf(state, ship.routeId);
   if (routeNow?.returnRouteId && routeOf(state, routeNow.returnRouteId)) {
     const home = routeOf(state, routeNow.returnRouteId);
@@ -309,9 +309,12 @@ function serviceDock(state: SimState, ship: Ship): void {
     block(ship, "нет топлива на следующий перегон");
     return;
   }
-  const pickup = routeNow?.stops.find((stop) => stop.worldId === world.id)?.actions.some((action) => action.good !== "fuel" && (action.mode === "load" || action.mode === "buy"));
+  const planned = routeNow?.stops[ship.stopIndex];
+  const here = routeNow && planned && planned.worldId === world.id ? planned : routeNow?.stops.find((stop) => stop.worldId === world.id);
+  const pickup = here?.actions.some((action) => action.good !== "fuel" && (action.mode === "load" || action.mode === "buy"));
   if (routeNow && !pickup) ship.loadWait = 0;
   if (routeNow && pickup && holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity)) return;
+  if (hold && !(pickup && ship.portMoved === 0)) return;
   if (routeNow) depart(state, ship, routeNow);
 }
 

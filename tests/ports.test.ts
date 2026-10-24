@@ -459,4 +459,30 @@ describe("порт", () => {
     expect(ship.status).toBe("docked");
     expect(ship.loadWait).toBe(1);
   });
+
+  it("срок ожидания отпускает покупку дороже предела", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    ore.prices.ore = 10;
+    const ship = state.ships[0];
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Дорогая руда",
+      shipId: ship.id,
+      minLoad: 20,
+      maxWait: 1,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "buy", amount: 20, price: 1, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.status).toBe("docked");
+    expect(ship.loadWait).toBe(1);
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+    expect(ship.cargo.ore).toBe(0);
+  });
 });
