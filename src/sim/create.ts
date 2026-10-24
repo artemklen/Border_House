@@ -53,6 +53,9 @@ export function createSkeleton(seed: number, scenario: string, rules: GameRules 
     routes: [],
     treaties: [],
     contracts: [],
+    situations: [],
+    tariffGrants: [],
+    cooldowns: [],
     people: [],
     journal: [],
     aiLog: [],
@@ -81,6 +84,7 @@ export function endowHouse(
     embargo: {},
     tradeWith: {},
     lastTradeWith: {},
+    successionTick: null,
   };
   state.houses.push(house);
   createCredits(state, { kind: "house", id: house.id }, spec.credits);

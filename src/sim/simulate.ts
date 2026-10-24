@@ -1,4 +1,5 @@
 import { foodReturnFuel, foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
+import { advanceSituations } from "./politics";
 import { payContractTakes, planSale, settleContractWindows } from "./contracts";
 import { advanceLoadWaits, advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
 import { advanceDevelopments, intendedInputs, plannedBatch, transitFuelDiscount } from "./specialty";
@@ -46,6 +47,7 @@ export function tick(state: SimState): void {
   closeTreaties(state);
   driftLoyalty(state);
   inherit(state);
+  advanceSituations(state);
   if (state.aiEnabled && state.rules.aiInterval > 0 && state.tick % state.rules.aiInterval === 0) planAi(state);
   rollAccounts(state);
 }
@@ -366,7 +368,7 @@ function clearToll(state: SimState, ship: Ship, world: World): boolean {
     return true;
   }
   if (ship.tollWorldId === world.id) return true;
-  const bps = tariffBetween(state, ship.houseId, world.ownerId, world.tariffBps);
+  const bps = tariffBetween(state, ship.houseId, world.ownerId, world.tariffBps, world.id);
   const fee = Math.floor((cargoValue(ship.cargo, world.prices) * bps) / 10000);
   if (fee <= 0) {
     ship.tollWorldId = world.id;
@@ -632,7 +634,7 @@ export function depart(state: SimState, ship: Ship, route: Route): void {
   }
   const fees = crossings.map((world) => ({
     world,
-    fee: Math.floor((cargoValue(ship.cargo, origin.prices) * tariffBetween(state, ship.houseId, world.ownerId!, world.tariffBps)) / 10000),
+    fee: Math.floor((cargoValue(ship.cargo, origin.prices) * tariffBetween(state, ship.houseId, world.ownerId!, world.tariffBps, world.id)) / 10000),
   }));
   const totalFee = fees.reduce((sum, item) => sum + item.fee, 0);
   if (ship.cargo.fuel < fuel) {
@@ -814,6 +816,7 @@ function passHouse(state: SimState, head: Person): void {
     shiftRelation(state, head.houseId, other.id, rolled.value - 8);
   }
   const house = houseOf(state, head.houseId);
+  if (house) house.successionTick = state.tick;
   note(state, head.houseId, `${head.name} умер. Новый глава ${house?.name ?? "дома"}: ${next.name} (${how}). Казна, миры, корабли, маршруты и договоры остаются у дома.`);
 }
 
