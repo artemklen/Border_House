@@ -16,6 +16,15 @@ describe("политические решения", () => {
     const fed = foodCase(80);
     advanceSituations(fed);
     expect(fed.situations).toHaveLength(0);
+
+    const two = foodCase(0);
+    const spare = endowHouse(two, { name: "Второй амбар", color: "#6a6", crest: "ВА", profile: "merchant", player: false, credits: 1000 });
+    const spareWorld = endowWorld(two, { id: "f-spare", name: "Запас", specialty: "еда", x: 140, y: 0, ownerId: spare.id, population: 10, popMoneyPerCapita: 2, stock: { food: 70 } });
+    spare.capitalId = spareWorld.id;
+    advanceSituations(two);
+    dispatch(two, { type: "resolveSituation", houseId: two.houses[0].id, situationId: two.situations[0].id, choice: "refuse" });
+    advanceSituations(two);
+    expect(two.situations.some((item) => item.kind === "foodDependence" && item.status === "open" && item.otherId === spare.id)).toBe(true);
   });
 
   it("спор о пошлине требует дорогой порт и голодного гостя, а отказ и уступка расходятся", () => {
@@ -168,6 +177,33 @@ describe("политические решения", () => {
     exporting.routes[0].paused = false;
     advanceSituations(exporting);
     expect(exporting.situations).toHaveLength(0);
+
+    const twin = createSkeleton(15, "export-next");
+    twin.aiEnabled = false;
+    const exporter = endowHouse(twin, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 4000 });
+    const home = endowWorld(twin, { id: "n-home", name: "Столица", specialty: "дом", x: 0, y: 0, ownerId: exporter.id, population: 80, popMoneyPerCapita: 2, stock: { food: 0 } });
+    const firstBuyer = endowHouse(twin, { name: "Первый", color: "#333", crest: "П1", profile: "merchant", player: false, credits: 1000 });
+    const secondBuyer = endowHouse(twin, { name: "Второй", color: "#844", crest: "П2", profile: "merchant", player: false, credits: 1000 });
+    const firstMarket = endowWorld(twin, { id: "n-a", name: "Рынок А", specialty: "рынок", x: 40, y: 0, ownerId: firstBuyer.id, population: 10, popMoneyPerCapita: 2, stock: { food: 10 } });
+    const secondMarket = endowWorld(twin, { id: "n-b", name: "Рынок Б", specialty: "рынок", x: 80, y: 0, ownerId: secondBuyer.id, population: 10, popMoneyPerCapita: 2, stock: { food: 10 } });
+    exporter.capitalId = home.id;
+    firstBuyer.capitalId = firstMarket.id;
+    secondBuyer.capitalId = secondMarket.id;
+    for (const [name, market] of [["Первый вывоз", firstMarket], ["Второй вывоз", secondMarket]] as const) {
+      dispatch(twin, {
+        type: "createRoute",
+        houseId: exporter.id,
+        name,
+        stops: [
+          { worldId: home.id, actions: [{ good: "food", mode: "load", amount: 10, price: 0, keep: 0 }] },
+          { worldId: market.id, actions: [{ good: "food", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+        ],
+      });
+    }
+    advanceSituations(twin);
+    dispatch(twin, { type: "resolveSituation", houseId: exporter.id, situationId: twin.situations[0].id, choice: "refuse" });
+    advanceSituations(twin);
+    expect(twin.situations.some((item) => item.kind === "exportShortage" && item.status === "open" && item.otherId === secondBuyer.id)).toBe(true);
   });
 
   it("смена главы открывает пересмотр только если договор уже есть", () => {

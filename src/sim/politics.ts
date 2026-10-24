@@ -455,26 +455,28 @@ function openFoodDependence(state: SimState, house: House): void {
   if (!capital) return;
   const cover = foodCover(capital.population, capital.stock.food, state.rules.foodPer100);
   if (cover >= 8) return;
-  const suppliers = foodSuppliers(state, house);
-  const other = suppliers[0];
-  if (!other) return;
-  const pantry = pantryOf(state, other.id);
-  const ship = pantry ? dockedShip(state, house.id, pantry.id) : undefined;
-  pushSituation(state, house, {
-    kind: "foodDependence",
-    otherId: other.id,
-    worldId: pantry?.id ?? null,
-    routeId: null,
-    contractId: null,
-    treatyId: null,
-    shipId: ship?.id ?? null,
-    cause: `Столица «${capital.name}» сыта на ${cover} дн. Продовольствие есть у ${other.name}, но само оно не придёт.`,
-    cost: FOOD_QTY * FOOD_PRICE,
-    days: EFFECT_DAYS,
-    tariffBps: GRANT_BPS,
-    qty: FOOD_QTY,
-    good: "food",
-  });
+  for (const other of foodSuppliers(state, house)) {
+    if (!canOpen(state, house.id, "foodDependence", other.id)) continue;
+    const pantry = pantryOf(state, other.id);
+    const ship = pantry ? dockedShip(state, house.id, pantry.id) : undefined;
+    const before = state.situations.length;
+    pushSituation(state, house, {
+      kind: "foodDependence",
+      otherId: other.id,
+      worldId: pantry?.id ?? null,
+      routeId: null,
+      contractId: null,
+      treatyId: null,
+      shipId: ship?.id ?? null,
+      cause: `Столица «${capital.name}» сыта на ${cover} дн. Продовольствие есть у ${other.name}, но само оно не придёт.`,
+      cost: FOOD_QTY * FOOD_PRICE,
+      days: EFFECT_DAYS,
+      tariffBps: GRANT_BPS,
+      qty: FOOD_QTY,
+      good: "food",
+    });
+    if (state.situations.length > before) return;
+  }
 }
 
 function openTariffDispute(state: SimState, house: House): void {
@@ -541,26 +543,30 @@ function openCongestedPort(state: SimState, house: House): void {
 function openExportShortage(state: SimState, house: House): void {
   const capital = worldOf(state, house.capitalId);
   if (!capital || foodCover(capital.population, capital.stock.food, state.rules.foodPer100) >= 10) return;
-  const route = exportRoute(state, house);
-  if (!route) return;
-  const abroad = foreignExport(state, house, route);
-  if (!abroad) return;
-  const { world, good } = abroad;
-  pushSituation(state, house, {
-    kind: "exportShortage",
-    otherId: world.ownerId && world.ownerId !== house.id ? world.ownerId : null,
-    worldId: world.id,
-    routeId: route.id,
-    contractId: null,
-    treatyId: null,
-    shipId: null,
-    cause: `Маршрут «${route.name}» вывозит ${GOOD_NAME[good]}, а столица сыта на ${foodCover(capital.population, capital.stock.food, state.rules.foodPer100)} дн.`,
-    cost: FOOD_QTY * FOOD_PRICE,
-    days: EFFECT_DAYS,
-    tariffBps: 0,
-    qty: FOOD_QTY,
-    good,
-  });
+  for (const route of state.routes) {
+    if (route.houseId !== house.id || route.paused) continue;
+    const abroad = foreignExport(state, house, route);
+    if (!abroad) continue;
+    const otherId = abroad.world.ownerId && abroad.world.ownerId !== house.id ? abroad.world.ownerId : null;
+    if (!canOpen(state, house.id, "exportShortage", otherId)) continue;
+    const before = state.situations.length;
+    pushSituation(state, house, {
+      kind: "exportShortage",
+      otherId,
+      worldId: abroad.world.id,
+      routeId: route.id,
+      contractId: null,
+      treatyId: null,
+      shipId: null,
+      cause: `Маршрут «${route.name}» вывозит ${GOOD_NAME[abroad.good]}, а столица сыта на ${foodCover(capital.population, capital.stock.food, state.rules.foodPer100)} дн.`,
+      cost: FOOD_QTY * FOOD_PRICE,
+      days: EFFECT_DAYS,
+      tariffBps: 0,
+      qty: FOOD_QTY,
+      good: abroad.good,
+    });
+    if (state.situations.length > before) return;
+  }
 }
 
 function pushSituation(state: SimState, house: House, draft: Omit<Situation, "id" | "status" | "houseId" | "openedTick" | "deadlineTick" | "choice">): void {
@@ -769,17 +775,6 @@ function foreignExport(state: SimState, house: House, route: Route): { world: Wo
     if (action) return { world, good: action.good };
   }
   return undefined;
-}
-
-function exportRoute(state: SimState, house: House): Route | undefined {
-  return state.routes.find((route) => {
-    if (route.houseId !== house.id || route.paused) return false;
-    return route.stops.some((stop) => {
-      const world = worldOf(state, stop.worldId);
-      if (!world || world.ownerId === house.id) return false;
-      return stop.actions.some((action) => (action.mode === "sell" || action.mode === "unload") && (action.good === "food" || action.good === "grain" || action.good === "ore"));
-    });
-  });
 }
 
 function pairTreaty(state: SimState, aId: string, bId: string, status: "active" | "proposed"): boolean {
