@@ -8,6 +8,8 @@ import { createExpansionScenario, createGrainScenario, createSuccessionScenario 
 import { GOODS, GOOD_NAME, type GoodId } from "../sim/goods";
 import { foodCover, houseOf, worldOf } from "../sim/mutate";
 import { BERTH_COST, BERTH_DAYS, BERTH_PARTS, BERTH_UPKEEP, SPEED_COST, SPEED_DAYS, SPEED_PARTS, SPEED_UPKEEP, effectiveBerths, effectiveThroughput, portEstimate } from "../sim/port";
+import { PATH_LABEL, developmentBlock, developmentText, levelCost, transitThroughputBonus } from "../sim/specialty";
+import type { DevelopmentPath } from "../sim/types";
 import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
 import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
@@ -317,6 +319,51 @@ export function App() {
                     worldId={selectedWorld?.id ?? sim.worlds[0].id}
                     onSelect={(id) => setSelected({ kind: "world", id })}
                     onExplain={(good) => setMessage(explainPrice(sim, selectedWorld?.id ?? sim.worlds[0].id, good))}
+                    onDevelop={(path) => {
+                      const world = selectedWorld ?? sim.worlds[0];
+                      const blocked = developmentBlock(sim, player.id, world.id, path);
+                      if (blocked) {
+                        setMessage(blocked);
+                        return;
+                      }
+                      const dev = world.development;
+                      const target = dev?.path === path && dev.level === 1 ? 2 : 1;
+                      const price = levelCost(path, target as 1 | 2);
+                      const switching = Boolean(dev?.path && dev.path !== path);
+                      const worldId = world.id;
+                      setConfirm({
+                        title: `${world.name}: ${PATH_LABEL[path]} путь, уровень ${target}`,
+                        lines: [
+                          `${price.cost} кред. уйдут населению, ${price.parts} комплектующих спишутся, срок ${price.days} дн.`,
+                          switching ? `Сейчас действует другой путь. На время стройки его бонус погаснет, вложенные ${dev?.invested ?? 0} кред. не вернутся.` : "Пока стройка не закончена, бонус этого уровня не действует.",
+                          "Склад не вырастет. Смена туда-обратно и отмена не возвращают комплектующие и не выдают повторный бонус.",
+                        ],
+                        run: () => {
+                          const current = simRef.current;
+                          const live = current?.worlds.find((item) => item.id === worldId);
+                          const liveTarget = live?.development?.path === path && live.development.level === 1 ? 2 : 1;
+                          const stillBlocked = current ? developmentBlock(current, player.id, worldId, path) : "нет партии";
+                          if (!live || liveTarget !== target || stillBlocked) {
+                            setMessage(stillBlocked && liveTarget === target ? stillBlocked : `Условия изменились: подтверждён уровень ${target}, сейчас доступен уровень ${liveTarget}. Откройте приказ заново.`);
+                            setConfirm(null);
+                            return;
+                          }
+                          act({ type: "developWorld", houseId: player.id, worldId, path });
+                        },
+                      });
+                    }}
+                    onCancelDevelopment={() => {
+                      const world = selectedWorld ?? sim.worlds[0];
+                      const spent = world.development?.project?.spent ?? 0;
+                      setConfirm({
+                        title: `${world.name}: отменить перестройку`,
+                        lines: [
+                          `Вернётся ${Math.floor(spent / 2)} кред., если они ещё у населения. Вторая половина и комплектующие останутся потраченными.`,
+                          "Завершённый уровень этой отменой не снимается и заново не выдаётся.",
+                        ],
+                        run: () => act({ type: "cancelDevelopment", houseId: player.id, worldId: world.id }),
+                      });
+                    }}
                     onExpand={(kind) => {
                       const world = selectedWorld ?? sim.worlds[0];
                       const cost = kind === "berth" ? BERTH_COST : SPEED_COST;
@@ -539,6 +586,8 @@ function WorldPanel(props: {
   onSelect: (id: string) => void;
   onExplain: (good: GoodId) => void;
   onExpand: (kind: "berth" | "speed") => void;
+  onDevelop: (path: DevelopmentPath) => void;
+  onCancelDevelopment: () => void;
   onColonize: () => void;
 }) {
   const world = worldOf(props.sim, props.worldId) ?? props.sim.worlds[0];
@@ -555,7 +604,16 @@ function WorldPanel(props: {
         <p>{world.specialty}. Владелец: {worldOwnerName(props.sim, world)}. Население {world.population}, кошелёк {world.popWallet} кред., удовлетворённость {world.satisfaction}.</p>
         <p>Еда: {need} ед./день, запас на {foodCover(world.population, world.stock.food, props.sim.rules.foodPer100)} дн. Склад {Object.values(world.stock).reduce((sum, value) => sum + value, 0)} / {world.capacity} ед. Пошлина {world.tariffBps / 100}%.</p>
         <p>Порт отдельно от склада: причалов {effectiveBerths(world.port)}, обработка до {effectiveThroughput(world.port)} ед./день. Уровни: причал {world.port.berthLevel}, скорость {world.port.speedLevel}. Содержание причала {BERTH_UPKEEP} кред./день, скорости {SPEED_UPKEEP}. {world.port.project ? `Стройка: ${world.port.project.kind === "berth" ? "причал" : "скорость"}, осталось ${world.port.project.remainingDays} дн.` : "Стройки нет."} {world.port.upkeepPaid ? "Содержание оплачено." : "Содержание не оплачено: сегодня только базовый причал."}</p>
-        <p>{portEstimate(world.port)} За окно обработано {world.port.handled} ед.</p>
+        <p>{portEstimate(world.port)} За окно обработано {world.port.handled} ед. Транзитный путь, если он действует, добавляет к этому бюджету ещё {transitThroughputBonus(world)} ед. и не открывает второй причал.</p>
+        <p>{developmentText(world)}</p>
+        {world.ownerId === props.sim.houses.find((house) => house.player)?.id ? (
+          <div className="row">
+            {(["agrarian", "industrial", "transit"] as const).map((path) => (
+              <button key={path} onClick={() => props.onDevelop(path)}>{PATH_LABEL[path]} путь</button>
+            ))}
+            {world.development?.project ? <button onClick={props.onCancelDevelopment}>Отменить перестройку</button> : null}
+          </div>
+        ) : null}
         <p>У причала: {world.port.berth.map((id) => props.sim.ships.find((ship) => ship.id === id)?.name ?? id).join(", ") || "пусто"}. Очередь: {world.port.queue.map((id, index) => `${index + 1}. ${props.sim.ships.find((ship) => ship.id === id)?.name ?? id}`).join("; ") || "нет"}.</p>
         {world.ownerId === props.sim.houses.find((house) => house.player)?.id ? (
           <div className="row">
@@ -949,7 +1007,7 @@ function GamePanel(props: {
 }) {
   return (
     <>
-      <p>Seed {props.sim.seed}. Сохранение версии 3 хранит ход, рейсы, контракты и портовые очереди. Записи версий 1 и 2 открываются: у старых миров появляется базовый порт без очереди. Чужой номер версии или битый файл не затирают текущую партию.</p>
+      <p>Seed {props.sim.seed}. Сохранение версии 4 хранит ход, рейсы, контракты, портовые очереди и путь развития мира. Записи версий 1–3 открываются: у старых миров появляется пустой путь без бонуса. Чужой номер версии или битый файл не затирают текущую партию.</p>
       <div className="row">
         <button onClick={props.onSave}>Сохранить в браузер</button>
         <button onClick={props.onExport}>Экспорт файла</button>

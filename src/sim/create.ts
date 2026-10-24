@@ -1,4 +1,4 @@
-import { RECIPES, SHIP_CLASSES, defaultRules } from "./config";
+import { RECIPES, SAVE_VERSION, SHIP_CLASSES, defaultRules } from "./config";
 import { GOODS, cloneGoods, emptyGoods, type GoodId } from "./goods";
 import {
   createCredits,
@@ -8,6 +8,7 @@ import {
   serial,
 } from "./mutate";
 import { emptyPort } from "./port";
+import { emptyDevelopment } from "./specialty";
 import { normalizeSeed } from "./prng";
 import { nextUnit } from "./prng";
 import type { AiProfile, BuildingKind, GameRules, House, Person, Ship, ShipClassId, SimState, World } from "./types";
@@ -38,7 +39,7 @@ export function createGame(options: NewGameOptions): SimState {
 
 export function createSkeleton(seed: number, scenario: string, rules: GameRules = defaultRules()): SimState {
   return {
-    version: 3,
+    version: SAVE_VERSION,
     seed,
     scenario,
     tick: 0,
@@ -135,6 +136,7 @@ export function endowWorld(
     lastEaten: 0,
     windowDays: 0,
     port: emptyPort(),
+    development: emptyDevelopment(),
   };
   state.worlds.push(world);
   for (const good of GOODS) createGoods(world.stock, state.accounts, good, 0);
@@ -156,6 +158,7 @@ export function placeBuilding(state: SimState, world: World, ownerId: string, ki
     enabled: true,
     stopReason: null,
     workers: RECIPES[kind].workers,
+    lastBatch: null,
   });
 }
 

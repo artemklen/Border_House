@@ -1,5 +1,6 @@
 import { cancelContract, proposeContract, respondContract } from "./contracts";
 import { expandPort } from "./port";
+import { cancelDevelopment, developWorld } from "./specialty";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, emptyGoods, type GoodId } from "./goods";
 import {
@@ -56,6 +57,10 @@ export function dispatch(state: SimState, command: Command): CommandResult {
       return appointGovernor(state, command.houseId, command.worldId, command.personId);
     case "expandPort":
       return expandPort(state, command.houseId, command.worldId, command.kind);
+    case "developWorld":
+      return developWorld(state, command.houseId, command.worldId, command.path);
+    case "cancelDevelopment":
+      return cancelDevelopment(state, command.houseId, command.worldId);
     default:
       return fail("неизвестная команда");
   }
@@ -97,6 +102,7 @@ function build(state: SimState, command: Extract<Command, { type: "build" }>): C
     enabled: true,
     stopReason: "строится",
     workers: 0,
+    lastBatch: null,
   });
   note(state, command.houseId, `Начат строительство: ${recipe.name} на «${world.name}», ${recipe.days} дн.`);
   return ok(`стройка займёт ${recipe.days} дн.`);

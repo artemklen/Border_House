@@ -1,5 +1,6 @@
 import { dispatch } from "./commands";
 import { portIdea } from "./port";
+import { developmentIdea, transitFuelDiscount } from "./specialty";
 import { judgeContract } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
@@ -21,13 +22,20 @@ export function planAi(state: SimState): void {
     answerProposals(state, house);
     answerContracts(state, house);
     const portPlan = portIdea(state, house.id);
-    const plans = portPlan ? [portPlan, ...ideas(state, house)] : ideas(state, house);
+    const plans = [...(portPlan ? [portPlan] : []), ...ideas(state, house)];
     let applied = 0;
     for (const plan of plans) {
       if (applied >= 2) break;
       const result = dispatch(state, plan.command);
       noteAi(state, house.id, result.ok ? plan.because : `${house.name} не смог: ${result.reason}`);
       if (result.ok) applied += 1;
+    }
+    if (applied < 2) {
+      const developmentPlan = developmentIdea(state, house.id);
+      if (developmentPlan) {
+        const result = dispatch(state, developmentPlan.command);
+        noteAi(state, house.id, result.ok ? developmentPlan.because : `${house.name} не смог: ${result.reason}`);
+      }
     }
   }
 }
@@ -287,7 +295,7 @@ function foodStops(house: House, ship: Ship, source: World, dest: World): RouteS
   const inbound = dest.ownerId === house.id
     ? { good: "food" as const, mode: "unload" as const, amount: 40, price: 0, keep: 0 }
     : { good: "food" as const, mode: "sell" as const, amount: 36, price: 1, keep: 0 };
-  const voyage = fuelForLeg(ship, source, dest) + fuelForLeg(ship, dest, source);
+  const voyage = foodRoundTrip(ship, source, dest);
   const free = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
   const amount = Math.max(0, Math.min(voyage - ship.cargo.fuel, free));
   const actions: RouteStop["actions"] = [];
@@ -309,7 +317,7 @@ export function refreshFoodFuel(state: SimState, ship: Ship, world: World, route
   if (!here || !there || !isFuelPickup(here, route)) return;
   const dest = worldOf(state, there.worldId);
   if (!dest) return;
-  const voyage = fuelForLeg(ship, world, dest) + fuelForLeg(ship, dest, world);
+  const voyage = foodRoundTrip(ship, world, dest);
   const deficit = Math.max(0, voyage - ship.cargo.fuel);
   if (deficit > 0) {
     const food = here.actions.filter(isFoodTake);
@@ -358,7 +366,7 @@ export function foodRouteNeedsFuel(state: SimState, ship: Ship, route: Route): b
   const origin = worldOf(state, ship.worldId);
   const dest = worldOf(state, there.worldId);
   if (!origin || !dest) return false;
-  const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
+  const voyage = foodRoundTrip(ship, origin, dest);
   return ship.cargo.fuel < voyage;
 }
 
@@ -371,8 +379,9 @@ export function foodReturnFuel(state: SimState, ship: Ship, route: Route, from: 
   const origin = worldOf(state, pickup.worldId);
   const dest = worldOf(state, other.worldId);
   if (!origin || !dest) return 0;
-  const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
-  const back = from.id !== origin.id ? fuelForLeg(ship, from, origin) : 0;
+  const outbound = from.id === origin.id ? fuelForLeg(ship, origin, dest) : rawLegFuel(ship, origin, dest);
+  const voyage = outbound + rawLegFuel(ship, dest, origin);
+  const back = from.id !== origin.id ? rawLegFuel(ship, from, origin) : 0;
   return voyage + back;
 }
 
@@ -414,9 +423,17 @@ function foodSource(state: SimState, house: House, dest: World): World | undefin
     .sort((a, b) => a.prices.food - b.prices.food || a.x - b.x)[0];
 }
 
-function fuelForLeg(ship: Ship, from: World, to: World): number {
+function foodRoundTrip(ship: Ship, origin: World, dest: World): number {
+  return fuelForLeg(ship, origin, dest) + rawLegFuel(ship, dest, origin);
+}
+
+function rawLegFuel(ship: Ship, from: World, to: World): number {
   const shipClass = SHIP_CLASSES[ship.classId];
   return Math.max(1, Math.ceil((distance(from, to) * shipClass.fuelPer1000) / 1000));
+}
+
+function fuelForLeg(ship: Ship, from: World, to: World): number {
+  return Math.max(1, rawLegFuel(ship, from, to) - transitFuelDiscount(from, ship.houseId));
 }
 
 function reachableFuelWorld(state: SimState, ship: Ship, here: World): World | undefined {
