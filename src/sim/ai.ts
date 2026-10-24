@@ -1,7 +1,8 @@
 import { dispatch } from "./commands";
+import { judgeContract } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
-import { byId, distance, foodCover, foodNeed, houseOf, noteAi, worldOf } from "./mutate";
+import { availableCredits, byId, distance, foodCover, foodNeed, houseOf, noteAi, worldOf } from "./mutate";
 import type { BuildingKind, Command, House, Route, RouteStop, Ship, SimState, Treaty, World } from "./types";
 
 const INPUT_BUILDING: Record<GoodId, BuildingKind> = {
@@ -17,6 +18,7 @@ export function planAi(state: SimState): void {
   for (const house of byId(state.houses)) {
     if (house.player) continue;
     answerProposals(state, house);
+    answerContracts(state, house);
     const plans = ideas(state, house);
     let applied = 0;
     for (const plan of plans) {
@@ -34,6 +36,16 @@ function answerProposals(state: SimState, house: House): void {
     const decision = judgeTreaty(state, house, treaty);
     dispatch(state, { type: "respondTreaty", houseId: house.id, treatyId: treaty.id, accept: decision.accept });
     noteAi(state, house.id, decision.because);
+  }
+}
+
+function answerContracts(state: SimState, house: House): void {
+  for (const contract of state.contracts) {
+    if (contract.status !== "proposed" || contract.buyerId !== house.id) continue;
+    const decision = judgeContract(state, contract);
+    const result = dispatch(state, { type: "respondContract", houseId: house.id, contractId: contract.id, accept: decision.accept });
+    const reason = result.ok ? decision.reason : result.reason;
+    noteAi(state, house.id, decision.accept && result.ok ? `${house.name} принимает контракт: ${reason}` : `${house.name} отклоняет контракт: ${reason}`);
   }
 }
 
@@ -208,7 +220,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     const home = owned.find((world) => world.stock.food >= state.rules.colonizeFood + 15 && world.stock.parts >= state.rules.colonizeParts && world.stock.fuel >= 20);
     const ship = home ? state.ships.find((item) => item.houseId === house.id && item.worldId === home.id && item.status === "docked" && !item.mission && !reserved.has(item.id)) : undefined;
     const free = byId(state.worlds).find((world) => world.ownerId === null);
-    if (home && ship && free && house.credits >= state.rules.colonizeCost + 1500) {
+    if (home && ship && free && availableCredits(house) >= state.rules.colonizeCost + 1500) {
       reserved.add(ship.id);
       plans.push({
         command: { type: "colonize", houseId: house.id, shipId: ship.id, worldId: free.id },

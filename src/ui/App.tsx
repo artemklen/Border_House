@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createClock, planFrame, type SpeedId } from "../sim/clock";
 import { dispatch, planBuild, planShip, treatyText } from "../sim/commands";
+import { contractEstimate, contractRisks } from "../sim/contracts";
 import { RECIPES, SHIP_CLASSES } from "../sim/config";
 import { createGame } from "../sim/create";
 import { createExpansionScenario, createGrainScenario, createSuccessionScenario } from "../sim/diagnostics";
@@ -54,6 +55,8 @@ const FLOW_LABELS: Array<[keyof Flow, string]> = [
   ["wages", "зарплаты"],
   ["upkeep", "содержание, денежный сток"],
   ["construction", "плата за стройку населению"],
+  ["penalties", "штрафы из залога"],
+  ["compensation", "полученные компенсации"],
 ];
 
 export function App() {
@@ -420,6 +423,7 @@ export function App() {
                       });
                     }}
                     onRespond={(treatyId, accept) => act({ type: "respondTreaty", houseId: player.id, treatyId, accept })}
+                    onCommand={act}
                   />
                 ) : null}
                 {tab === "house" ? <HousePanel sim={sim} houseId={player.id} onAppoint={(worldId, personId) => act({ type: "appointGovernor", houseId: player.id, worldId, personId })} /> : null}
@@ -681,7 +685,7 @@ function CashPanel(props: { sim: SimState; houseId: string }) {
   return (
     <article className="card">
       <h2>Касса {house.name}</h2>
-      <p>Баланс {house.credits} кред. Окно учёта {house.flowDays} / {props.sim.rules.window} дн. Начальные деньги — явное наделение, содержание кораблей и предприятий сжигается и пишется как сток.</p>
+      <p>Баланс {house.credits} кред., из них свободно {house.credits - house.reserved}, в резерве контрактов {house.reserved}. Окно учёта {house.flowDays} / {props.sim.rules.window} дн. Резерв остаётся в казне, но его нельзя потратить второй раз. Начальные деньги — явное наделение, содержание кораблей и предприятий сжигается и пишется как сток.</p>
       <table>
         <tbody>
           {FLOW_LABELS.map(([key, label]) => (
@@ -727,8 +731,19 @@ function DealPanel(props: {
   onEmbargo: (otherId: string, embargo: boolean) => void;
   onPropose: (otherId: string) => void;
   onRespond: (treatyId: string, accept: boolean) => void;
+  onCommand: (command: Command) => void;
 }) {
+  const [good, setGood] = useState<GoodId>("food");
+  const [qty, setQty] = useState(8);
+  const [windows, setWindows] = useState(2);
+  const [price, setPrice] = useState(10);
+  const [shortfall, setShortfall] = useState(1);
+  const [deposit, setDeposit] = useState(20);
+  const [destination, setDestination] = useState("");
   const house = houseOf(props.sim, props.houseId)!;
+  const buyerWorlds = props.sim.worlds.filter((world) => world.ownerId === props.otherId);
+  const buyerWorldId = buyerWorlds.some((world) => world.id === destination) ? destination : buyerWorlds[0]?.id ?? "";
+  const preview = buyerWorldId ? contractEstimate(props.sim, house.id, props.otherId, good, buyerWorldId, qty, windows, price, deposit) : null;
   return (
     <>
       {dependencyRows(props.sim, house).map((line) => <p key={line}>{line}</p>)}
@@ -752,6 +767,41 @@ function DealPanel(props: {
         <input type="number" value={props.treatyTariff} onChange={(event) => props.onTreatyTariff(Number(event.target.value))} />
       </label>
       <button className="primary" onClick={() => props.onPropose(props.otherId)}>Предложить скидку за поставки</button>
+      <h3>Коммерческий контракт</h3>
+      <p>Цена фиксируется при принятии. Рыночная цена потом может измениться, контрактная нет. Дипломатический договор этой пары остаётся отдельным.</p>
+      <label>Товар
+        <select value={good} onChange={(event) => setGood(event.target.value as GoodId)}>
+          {GOODS.map((item) => <option key={item} value={item}>{GOOD_NAME[item]}</option>)}
+        </select>
+      </label>
+      <label>Мир покупателя
+        <select value={buyerWorldId} onChange={(event) => setDestination(event.target.value)}>
+          {buyerWorlds.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}
+        </select>
+      </label>
+      <label>Объём за окно <input type="number" value={qty} onChange={(event) => setQty(Number(event.target.value))} /></label>
+      <label>Окон, 2–6 <input type="number" value={windows} onChange={(event) => setWindows(Number(event.target.value))} /></label>
+      <label>Цена за единицу <input type="number" value={price} onChange={(event) => setPrice(Number(event.target.value))} /></label>
+      <label>Допустимый недовоз <input type="number" value={shortfall} onChange={(event) => setShortfall(Number(event.target.value))} /></label>
+      <label>Залог продавца <input type="number" value={deposit} onChange={(event) => setDeposit(Number(event.target.value))} /></label>
+      {preview ? (
+        <article className="card">
+          <p>Оценка выручки {preview.revenue} кред. Путь около {preview.voyageDays} дн., рейсов на окно {preview.trips}, трюм {preview.capacity}. Топливо по текущей цене около {preview.fuelCost} кред. Залог {preview.collateral}.</p>
+          {preview.assumptions.map((line) => <p key={line}>{line}</p>)}
+        </article>
+      ) : null}
+      <button className="primary" onClick={() => props.onCommand({
+        type: "proposeContract",
+        sellerId: house.id,
+        buyerId: props.otherId,
+        good,
+        worldId: buyerWorldId,
+        qtyPerWindow: qty,
+        windows,
+        price,
+        shortfall,
+        deposit,
+      })}>Предложить контракт</button>
       {props.sim.treaties.map((treaty) => (
         <article key={treaty.id} className="card">
           <h3>{treaty.status}</h3>
@@ -765,6 +815,31 @@ function DealPanel(props: {
           ) : null}
         </article>
       ))}
+      {props.sim.contracts.map((contract) => {
+        const seller = props.sim.houses.find((item) => item.id === contract.sellerId);
+        const buyer = props.sim.houses.find((item) => item.id === contract.buyerId);
+        const destination = props.sim.worlds.find((item) => item.id === contract.worldId);
+        return (
+        <article key={contract.id} className="card">
+          <h3>Контракт {{ proposed: "предложен", active: "идёт", completed: "завершён", broken: "сорван", cancelled: "отменён", rejected: "отклонён" }[contract.status]}</h3>
+          <p>{seller?.name ?? "продавец"} поставляет {buyer?.name ?? "покупателю"} {GOOD_NAME[contract.good]} в «{destination?.name ?? "мир"}». Цена {contract.price}, объём {contract.qtyPerWindow} за окно, допустимый недовоз {contract.shortfall}, срок {contract.windows} окон.</p>
+          <p>{contract.note}</p>
+          <p>Окно {contract.windowIndex + 1} / {contract.windows}, день {contract.windowDays} / {props.sim.rules.window}. Принято {contract.delivered} / {contract.qtyPerWindow} по {contract.price} кред. Резерв покупателя {contract.buyerReserve}, залог {contract.deposit}.</p>
+          <p>{contractRisks(props.sim, contract).join(" ")}</p>
+          {contract.history.length > 0 ? <p>Прошлые окна: {contract.history.map((item) => `${item.delivered} ед., оплата ${item.paid}, штраф ${item.penalty}`).join("; ")}.</p> : null}
+          {contract.trades.length > 0 ? <p>Приёмки: {contract.trades.map((item) => `день ${item.tick} ${item.qty} по ${item.price}`).join("; ")}.</p> : null}
+          {contract.status === "proposed" && contract.buyerId === house.id ? (
+            <div className="row">
+              <button onClick={() => props.onCommand({ type: "respondContract", houseId: house.id, contractId: contract.id, accept: true })}>Принять контракт</button>
+              <button onClick={() => props.onCommand({ type: "respondContract", houseId: house.id, contractId: contract.id, accept: false })}>Отклонить</button>
+            </div>
+          ) : null}
+          {contract.status === "proposed" || contract.status === "active" ? (
+            <button onClick={() => props.onCommand({ type: "cancelContract", houseId: house.id, contractId: contract.id })}>Отменить контракт</button>
+          ) : null}
+        </article>
+        );
+      })}
     </>
   );
 }
@@ -832,7 +907,7 @@ function GamePanel(props: {
 }) {
   return (
     <>
-      <p>Seed {props.sim.seed}. Сохранение версии 1 хранит весь ход, генератор и рейсы. Чужой номер версии или битый файл не затирают текущую партию.</p>
+      <p>Seed {props.sim.seed}. Сохранение версии 2 хранит весь ход, генератор, рейсы и коммерческие контракты. Запись версии 1 открывается без контрактов и без резерва. Чужой номер версии или битый файл не затирают текущую партию.</p>
       <div className="row">
         <button onClick={props.onSave}>Сохранить в браузер</button>
         <button onClick={props.onExport}>Экспорт файла</button>

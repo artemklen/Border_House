@@ -60,6 +60,8 @@ export interface Flow {
   tariffsOut: number;
   upkeep: number;
   construction: number;
+  penalties: number;
+  compensation: number;
 }
 
 export interface House {
@@ -70,6 +72,8 @@ export interface House {
   player: boolean;
   profile: AiProfile;
   credits: number;
+  /** Часть казны, уже обещанная контрактам. Входит в credits и недоступна для других трат. */
+  reserved: number;
   capitalId: string;
   flow: Flow;
   lastFlow: Flow;
@@ -200,6 +204,38 @@ export interface Treaty {
   note: string;
 }
 
+export interface ContractWindow {
+  window: number;
+  delivered: number;
+  paid: number;
+  penalty: number;
+}
+
+export type ContractStatus = "proposed" | "active" | "completed" | "broken" | "cancelled" | "rejected";
+
+/** Коммерческая поставка по согласованной цене. Это не дипломатический договор. */
+export interface Contract {
+  id: string;
+  sellerId: string;
+  buyerId: string;
+  good: GoodId;
+  worldId: string;
+  qtyPerWindow: number;
+  windows: number;
+  price: number;
+  shortfall: number;
+  deposit: number;
+  buyerReserve: number;
+  delivered: number;
+  paidWindow: number;
+  windowIndex: number;
+  windowDays: number;
+  status: ContractStatus;
+  note: string;
+  history: ContractWindow[];
+  trades: Array<{ tick: number; qty: number; price: number }>;
+}
+
 export interface Person {
   id: string;
   houseId: string;
@@ -230,7 +266,7 @@ export interface Accounts {
 }
 
 export interface SimState {
-  version: 1;
+  version: 2;
   seed: number;
   scenario: string;
   tick: number;
@@ -243,6 +279,7 @@ export interface SimState {
   ships: Ship[];
   routes: Route[];
   treaties: Treaty[];
+  contracts: Contract[];
   people: Person[];
   journal: JournalEntry[];
   aiLog: JournalEntry[];
@@ -270,6 +307,20 @@ export type Command =
       duration: number;
     }
   | { type: "respondTreaty"; houseId: string; treatyId: string; accept: boolean }
+  | {
+      type: "proposeContract";
+      sellerId: string;
+      buyerId: string;
+      good: GoodId;
+      worldId: string;
+      qtyPerWindow: number;
+      windows: number;
+      price: number;
+      shortfall: number;
+      deposit: number;
+    }
+  | { type: "respondContract"; houseId: string; contractId: string; accept: boolean }
+  | { type: "cancelContract"; houseId: string; contractId: string }
   | { type: "colonize"; houseId: string; shipId: string; worldId: string }
   | { type: "appointGovernor"; houseId: string; worldId: string; personId: string };
 

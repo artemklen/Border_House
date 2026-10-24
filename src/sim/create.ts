@@ -37,7 +37,7 @@ export function createGame(options: NewGameOptions): SimState {
 
 export function createSkeleton(seed: number, scenario: string, rules: GameRules = defaultRules()): SimState {
   return {
-    version: 1,
+    version: 2,
     seed,
     scenario,
     tick: 0,
@@ -50,6 +50,7 @@ export function createSkeleton(seed: number, scenario: string, rules: GameRules 
     ships: [],
     routes: [],
     treaties: [],
+    contracts: [],
     people: [],
     journal: [],
     aiLog: [],
@@ -69,6 +70,7 @@ export function endowHouse(
     player: spec.player,
     profile: spec.profile,
     credits: 0,
+    reserved: 0,
     capitalId: "",
     flow: emptyFlow(),
     lastFlow: emptyFlow(),
