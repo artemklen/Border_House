@@ -165,15 +165,15 @@ export function recordPortDays(state: SimState): void {
   }
 }
 
-export function holdForLoad(ship: Ship, route: Route, capacity: number): boolean {
+export function holdForLoad(ship: Ship, route: Route, capacity: number): "ready" | "waiting" | "expired" {
   if (route.minLoad <= 0) {
     ship.loadWait = 0;
-    return false;
+    return "ready";
   }
   const dry = Math.max(0, ship.cargo.grain + ship.cargo.food + ship.cargo.ore + ship.cargo.alloys + ship.cargo.parts);
   if (dry >= route.minLoad) {
     ship.loadWait = 0;
-    return false;
+    return "ready";
   }
   const conflict = route.minLoad > capacity - ship.cargo.fuel;
   if (ship.loadWait < route.maxWait) {
@@ -181,13 +181,13 @@ export function holdForLoad(ship: Ship, route: Route, capacity: number): boolean
     ship.stopReason = conflict
       ? `минимум ${route.minLoad} ед. не влезает рядом с топливом ${ship.cargo.fuel}. Ждём ${ship.loadWait} из ${route.maxWait}, затем частичный рейс.`
       : `ждём загрузку ${dry} из ${route.minLoad}. День ${ship.loadWait} из ${route.maxWait}, затем частичный рейс.`;
-    return true;
+    return "waiting";
   }
   ship.stopReason = conflict
     ? `частичный рейс: минимум ${route.minLoad} не влезает рядом с топливом, ожидание ${route.maxWait} дн. истекло.`
     : `частичный рейс: загрузка ${dry} из ${route.minLoad}, ожидание ${route.maxWait} дн. истекло.`;
   ship.loadWait = 0;
-  return false;
+  return "expired";
 }
 
 export function expandPort(state: SimState, houseId: string, worldId: string, kind: "berth" | "speed"): CommandResult {

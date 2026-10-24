@@ -512,4 +512,33 @@ describe("порт", () => {
     expect(ship.status).toBe("docked");
     expect(ship.cargo.ore).toBe(10);
   });
+
+  it("истёкшее ожидание погрузки не отменяет невыгруженную руду", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const dock = state.worlds.find((world) => world.id === "l-dock")!;
+    createGoods(dock.stock, state.accounts, "ore", dock.capacity - Object.values(dock.stock).reduce((sum, value) => sum + value, 0));
+    const ship = state.ships[0];
+    createGoods(ship.cargo, state.accounts, "ore", 10);
+    ship.worldId = dock.id;
+    ship.status = "docked";
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Срок не отменяет выгрузку",
+      shipId: ship.id,
+      minLoad: 20,
+      maxWait: 1,
+      stops: [
+        { worldId: "l-dock", actions: [
+          { good: "ore", mode: "unload", amount: 10, price: 0, keep: 0 },
+          { good: "food", mode: "load", amount: 10, price: 0, keep: 0 },
+        ] },
+        { worldId: "l-ore", actions: [] },
+      ],
+    });
+    runTicks(state, 2);
+    expect(ship.status).toBe("docked");
+    expect(ship.cargo.ore).toBe(10);
+  });
 });
