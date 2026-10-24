@@ -1,4 +1,7 @@
+import { dispatch } from "./commands";
 import { createSkeleton, endowHouse, endowWorld, placeBuilding, placeFamily, placeShip } from "./create";
+import { effectiveThroughput } from "./port";
+import { advanceSituations } from "./politics";
 import type { SimState } from "./types";
 
 /** Отдельные партии для проверок. Обычное меню их не подставляет. */
@@ -211,5 +214,67 @@ export function createSuccessionScenario(seed = 9, withHeir = true): SimState {
   const head = state.people.find((person) => person.role === "head");
   if (head) head.ageDays = 89 * state.rules.ticksPerYear;
   void other;
+  return state;
+}
+
+/** Гость с голодной столицей стоит в дорогой гавани. Ситуация уже открыта, кампания это не продолжает. */
+export function createCrisisScenario(seed = 12): SimState {
+  const state = createSkeleton(seed, "crisis");
+  state.aiEnabled = false;
+  const player = endowHouse(state, { name: "Дом Солар", color: "#e0a84a", crest: "СЛ", profile: "player", player: true, credits: 6000 });
+  const capital = endowWorld(state, {
+    id: "c-home",
+    name: "Усадьба",
+    specialty: "дом",
+    x: 0,
+    y: 80,
+    ownerId: player.id,
+    population: 40,
+    popMoneyPerCapita: 4,
+    stock: { food: 80, fuel: 20 },
+  });
+  const port = endowWorld(state, {
+    id: "c-port",
+    name: "Гавань",
+    specialty: "пошлина",
+    x: 0,
+    y: 0,
+    ownerId: player.id,
+    population: 20,
+    popMoneyPerCapita: 4,
+    stock: { food: 40, fuel: 20 },
+    tariffBps: 900,
+  });
+  const rival = endowHouse(state, { name: "Дом Вега", color: "#d4533c", crest: "ВГ", profile: "merchant", player: false, credits: 4000 });
+  const hungry = endowWorld(state, {
+    id: "c-vega",
+    name: "Столица Веги",
+    specialty: "голод",
+    x: 220,
+    y: 0,
+    ownerId: rival.id,
+    population: 200,
+    popMoneyPerCapita: 4,
+    stock: { food: 2 },
+  });
+  player.capitalId = capital.id;
+  rival.capitalId = hungry.id;
+  const ship = placeShip(state, rival.id, port, "freighter", 20);
+  dispatch(state, {
+    type: "createRoute",
+    houseId: rival.id,
+    name: "Транзит через Гавань",
+    shipId: ship.id,
+    stops: [
+      { worldId: port.id, actions: [{ good: "food", mode: "buy", amount: 10, price: 20, keep: 0 }] },
+      { worldId: hungry.id, actions: [{ good: "food", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+    ],
+  });
+  port.port.berth = [ship.id];
+  ship.worldId = port.id;
+  ship.status = "docked";
+  ship.portAllowance = effectiveThroughput(port.port);
+  ship.portMoved = 0;
+  advanceSituations(state);
   return state;
 }

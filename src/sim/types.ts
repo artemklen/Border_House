@@ -83,6 +83,10 @@ export interface House {
   embargo: Record<string, boolean>;
   tradeWith: Record<string, number>;
   lastTradeWith: Record<string, number>;
+  /** Тик, когда у дома уже сменился глава. Смерть здесь не создаётся. */
+  successionTick: number | null;
+  /** Смена главы ещё не получила окно решения: слоты были заняты. */
+  successionPending: boolean;
 }
 
 export interface Building {
@@ -302,6 +306,62 @@ export interface Person {
   worldId: string | null;
 }
 
+export type GoalKind = "food" | "transit" | "industry";
+
+export type SituationKind =
+  | "foodDependence"
+  | "tariffDispute"
+  | "brokenContract"
+  | "congestedPort"
+  | "exportShortage"
+  | "successionReview";
+
+export type SituationChoice = "yield" | "pay" | "refuse";
+
+export type SituationStatus = "open" | "resolved" | "expired";
+
+/** Открытый политический выбор. Числа заморожены в момент открытия и перепроверяются при исполнении. */
+export interface Situation {
+  id: string;
+  kind: SituationKind;
+  status: SituationStatus;
+  houseId: string;
+  otherId: string | null;
+  worldId: string | null;
+  routeId: string | null;
+  contractId: string | null;
+  treatyId: string | null;
+  shipId: string | null;
+  openedTick: number;
+  deadlineTick: number;
+  choice: SituationChoice | null;
+  cause: string;
+  cost: number;
+  days: number;
+  tariffBps: number;
+  qty: number;
+  good: GoodId;
+}
+
+/** Временная пошлина: срок и владелец записаны, ставка не живёт вечно. */
+export interface TariffGrant {
+  id: string;
+  worldId: string;
+  ownerId: string;
+  beneficiaryId: string;
+  bps: number;
+  untilTick: number;
+  /** Договор, из которого выросла скидка. Пусто — отдельная уступка порта, её не снимают вместе с поставкой. */
+  treatyId: string | null;
+}
+
+export interface SituationCooldown {
+  kind: SituationKind;
+  houseId: string;
+  otherId: string;
+  untilTick: number;
+}
+
 export interface JournalEntry {
   tick: number;
   houseId: string | null;
@@ -318,7 +378,7 @@ export interface Accounts {
 }
 
 export interface SimState {
-  version: 4;
+  version: 5;
   seed: number;
   scenario: string;
   tick: number;
@@ -332,6 +392,9 @@ export interface SimState {
   routes: Route[];
   treaties: Treaty[];
   contracts: Contract[];
+  situations: Situation[];
+  tariffGrants: TariffGrant[];
+  cooldowns: SituationCooldown[];
   people: Person[];
   journal: JournalEntry[];
   aiLog: JournalEntry[];
@@ -377,7 +440,8 @@ export type Command =
   | { type: "appointGovernor"; houseId: string; worldId: string; personId: string }
   | { type: "expandPort"; houseId: string; worldId: string; kind: "berth" | "speed" }
   | { type: "developWorld"; houseId: string; worldId: string; path: DevelopmentPath }
-  | { type: "cancelDevelopment"; houseId: string; worldId: string };
+  | { type: "cancelDevelopment"; houseId: string; worldId: string }
+  | { type: "resolveSituation"; houseId: string; situationId: string; choice: SituationChoice };
 
 export interface CommandResult {
   ok: boolean;

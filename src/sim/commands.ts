@@ -1,5 +1,6 @@
 import { cancelContract, proposeContract, respondContract } from "./contracts";
 import { expandPort } from "./port";
+import { resolveSituation } from "./politics";
 import { cancelDevelopment, developWorld } from "./specialty";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, emptyGoods, type GoodId } from "./goods";
@@ -61,6 +62,8 @@ export function dispatch(state: SimState, command: Command): CommandResult {
       return developWorld(state, command.houseId, command.worldId, command.path);
     case "cancelDevelopment":
       return cancelDevelopment(state, command.houseId, command.worldId);
+    case "resolveSituation":
+      return resolveSituation(state, command.houseId, command.situationId, command.choice);
     default:
       return fail("неизвестная команда");
   }

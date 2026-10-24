@@ -4,12 +4,13 @@ import { dispatch, planBuild, planShip, treatyText } from "../sim/commands";
 import { contractEstimate, contractRisks } from "../sim/contracts";
 import { RECIPES, SHIP_CLASSES } from "../sim/config";
 import { createGame } from "../sim/create";
-import { createExpansionScenario, createGrainScenario, createSuccessionScenario } from "../sim/diagnostics";
+import { createCrisisScenario, createExpansionScenario, createGrainScenario, createSuccessionScenario } from "../sim/diagnostics";
 import { GOODS, GOOD_NAME, type GoodId } from "../sim/goods";
 import { foodCover, houseOf, worldOf } from "../sim/mutate";
 import { BERTH_COST, BERTH_DAYS, BERTH_PARTS, BERTH_UPKEEP, SPEED_COST, SPEED_DAYS, SPEED_PARTS, SPEED_UPKEEP, effectiveBerths, effectiveThroughput, portEstimate } from "../sim/port";
+import { CHOICE_LABEL, SITUATION_LABEL, choicePreview, describeGoal } from "../sim/politics";
 import { PATH_LABEL, developmentBlock, developmentText, levelCost, transitThroughputBonus } from "../sim/specialty";
-import type { DevelopmentPath } from "../sim/types";
+import type { DevelopmentPath, SituationChoice } from "../sim/types";
 import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
 import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
@@ -42,6 +43,7 @@ const TABS = [
   ["cash", "Касса"],
   ["gaps", "Сбои"],
   ["deals", "Договоры"],
+  ["politics", "Решения"],
   ["house", "Дом"],
   ["log", "Журнал"],
   ["game", "Партия"],
@@ -460,6 +462,37 @@ export function App() {
                 ) : null}
                 {tab === "cash" ? <CashPanel sim={sim} houseId={player.id} /> : null}
                 {tab === "gaps" ? <GapPanel sim={sim} houseId={player.id} /> : null}
+                {tab === "politics" ? (
+                  <PoliticsPanel
+                    sim={sim}
+                    houseId={player.id}
+                    onChoose={(situationId, choice) => {
+                      const situation = sim.situations.find((item) => item.id === situationId);
+                      if (!situation || situation.status !== "open") {
+                        setMessage("Решение уже закрыто. Повторно казна не списывается.");
+                        return;
+                      }
+                      setConfirm({
+                        title: `${SITUATION_LABEL[situation.kind]}: ${CHOICE_LABEL[choice]}`,
+                        lines: choicePreview(situation, choice),
+                        run: () => {
+                          const live = simRef.current?.situations.find((item) => item.id === situationId);
+                          if (!live || live.status !== "open") {
+                            setMessage("Решение уже закрыто. Повторно казна не списывается.");
+                            setConfirm(null);
+                            return;
+                          }
+                          act({ type: "resolveSituation", houseId: player.id, situationId, choice });
+                        },
+                      });
+                    }}
+                    onWorld={(worldId) => {
+                      setSelected({ kind: "world", id: worldId });
+                      setTab("world");
+                    }}
+                    onDeals={() => setTab("deals")}
+                  />
+                ) : null}
                 {tab === "deals" ? (
                   <DealPanel
                     sim={sim}
@@ -514,6 +547,7 @@ export function App() {
                       if (kind === "succession") adopt(createSuccessionScenario(sim.seed, true));
                       if (kind === "fallback") adopt(createSuccessionScenario(sim.seed, false));
                       if (kind === "colony") adopt(createExpansionScenario(sim.seed));
+                      if (kind === "crisis") adopt(createCrisisScenario(sim.seed));
                       setMessage("Открыт проверочный сценарий. Это не продолжение кампании.");
                     }}
                   />
@@ -997,17 +1031,52 @@ function LogPanel(props: { sim: SimState }) {
   );
 }
 
+function PoliticsPanel(props: {
+  sim: SimState;
+  houseId: string;
+  onChoose: (situationId: string, choice: SituationChoice) => void;
+  onWorld: (worldId: string) => void;
+  onDeals: () => void;
+}) {
+  const house = props.sim.houses.find((item) => item.id === props.houseId);
+  const goal = house ? describeGoal(props.sim, house) : null;
+  const open = props.sim.situations.filter((item) => item.houseId === props.houseId && item.status === "open");
+  return (
+    <>
+      <article className="card">
+        <h3>Цель дома</h3>
+        <p>{goal ? `${goal.title}. ${goal.reason}` : "Дом не выбран."}</p>
+      </article>
+      {open.length === 0 ? <p>Открытых решений нет. Ситуация появляется только при живом дефиците, очереди, срыве контракта или уже случившейся смене главы.</p> : null}
+      {open.map((situation) => (
+        <article key={situation.id} className="card">
+          <h3>{SITUATION_LABEL[situation.kind]}</h3>
+          <p>{situation.cause}</p>
+          <p>До тика {situation.deadlineTick} осталось {Math.max(0, situation.deadlineTick - props.sim.tick)} дн. Пауза срок не тратит. Повторное нажатие после выбора казну не списывает.</p>
+          <div className="row">
+            {(["yield", "pay", "refuse"] as const).map((choice) => (
+              <button key={choice} onClick={() => props.onChoose(situation.id, choice)}>{CHOICE_LABEL[choice]}</button>
+            ))}
+            {situation.worldId ? <button onClick={() => props.onWorld(situation.worldId!)}>К миру</button> : null}
+            {situation.treatyId || situation.contractId ? <button onClick={props.onDeals}>К договору</button> : null}
+          </div>
+        </article>
+      ))}
+    </>
+  );
+}
+
 function GamePanel(props: {
   sim: SimState;
   onSave: () => void;
   onExport: () => void;
   onImport: (raw: string) => void;
   onBase: () => void;
-  onDiag: (kind: "grain" | "succession" | "fallback" | "colony") => void;
+  onDiag: (kind: "grain" | "succession" | "fallback" | "colony" | "crisis") => void;
 }) {
   return (
     <>
-      <p>Seed {props.sim.seed}. Сохранение версии 4 хранит ход, рейсы, контракты, портовые очереди и путь развития мира. Записи версий 1–3 открываются: у старых миров появляется пустой путь без бонуса. Чужой номер версии или битый файл не затирают текущую партию.</p>
+      <p>Seed {props.sim.seed}. Сохранение версии 5 хранит ход, рейсы, контракты, портовые очереди, путь развития и открытые политические решения. Записи версий 1–4 открываются: у старых партий список решений пуст. Чужой номер версии или битый файл не затирают текущую партию.</p>
       <div className="row">
         <button onClick={props.onSave}>Сохранить в браузер</button>
         <button onClick={props.onExport}>Экспорт файла</button>
@@ -1027,6 +1096,7 @@ function GamePanel(props: {
           <button onClick={() => props.onDiag("succession")}>Быстрая смена главы</button>
           <button onClick={() => props.onDiag("fallback")}>Нет наследника</button>
           <button onClick={() => props.onDiag("colony")}>Экспансия ИИ</button>
+          <button onClick={() => props.onDiag("crisis")}>Спор о пошлине</button>
         </div>
       </fieldset>
     </>

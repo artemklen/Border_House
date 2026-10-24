@@ -348,7 +348,7 @@ export function activeTreaty(state: SimState, aId: string, bId: string, kinds: T
   );
 }
 
-export function tariffBetween(state: SimState, travelerId: string, ownerId: string, worldTariff: number): number {
+export function tariffBetween(state: SimState, travelerId: string, ownerId: string, worldTariff: number, worldId?: string): number {
   const deal = state.treaties.find(
     (treaty) =>
       treaty.status === "active" &&
@@ -356,7 +356,13 @@ export function tariffBetween(state: SimState, travelerId: string, ownerId: stri
       treaty.proposerId === travelerId &&
       treaty.targetId === ownerId,
   );
-  return deal ? deal.tariffBps : worldTariff;
+  const base = deal ? deal.tariffBps : worldTariff;
+  const grants = worldId
+    ? state.tariffGrants.filter(
+        (item) => item.worldId === worldId && item.ownerId === ownerId && item.beneficiaryId === travelerId && item.untilTick >= state.tick,
+      )
+    : [];
+  return grants.reduce((rate, grant) => Math.min(rate, grant.bps), base);
 }
 
 export function accessDenied(state: SimState, travelerId: string, world: World): boolean {

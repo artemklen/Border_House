@@ -40,7 +40,7 @@ export function deserialize(raw: string): SimState {
   }
   if (!parsed || typeof parsed !== "object") throw new SaveError("Файл сохранения повреждён.");
   const file = parsed as { version?: unknown; state?: SimState };
-  if (file.version !== 1 && file.version !== 2 && file.version !== 3 && file.version !== 4) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1, 2, 3 и 4.");
+  if (file.version !== 1 && file.version !== 2 && file.version !== 3 && file.version !== 4 && file.version !== 5) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1, 2, 3, 4 и 5.");
   const state = file.state;
   if (!state || !Number.isInteger(state.tick) || state.tick < 0 || typeof state.rngState !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
@@ -105,7 +105,6 @@ function migrateSave(state: SimState, version: number): void {
     }
   }
   if (version < 4) {
-    state.version = 4;
     if (Array.isArray(state.worlds)) {
       for (const world of state.worlds) {
         if (!world) continue;
@@ -123,9 +122,26 @@ function migrateSave(state: SimState, version: number): void {
       }
     }
   }
+  if (version < 5) {
+    state.version = 5;
+    if (!Array.isArray(state.situations)) state.situations = [];
+    if (!Array.isArray(state.tariffGrants)) state.tariffGrants = [];
+    if (!Array.isArray(state.cooldowns)) state.cooldowns = [];
+  }
+  if (Array.isArray(state.tariffGrants)) {
+    for (const grant of state.tariffGrants) {
+      if (grant && !Object.hasOwn(grant, "treatyId")) grant.treatyId = null;
+    }
+  }
+  if (Array.isArray(state.houses)) {
+    for (const house of state.houses) {
+      if (house && !Object.hasOwn(house, "successionTick")) house.successionTick = null;
+      if (house && !Object.hasOwn(house, "successionPending")) house.successionPending = false;
+    }
+  }
 }
 
-const LISTS = ["houses", "worlds", "ships", "routes", "treaties", "contracts", "people", "journal", "aiLog"] as const;
+const LISTS = ["houses", "worlds", "ships", "routes", "treaties", "contracts", "situations", "tariffGrants", "cooldowns", "people", "journal", "aiLog"] as const;
 
 function requireGoods(value: unknown, label: string): void {
   if (!value || typeof value !== "object") throw new SaveError(`Файл сохранения повреждён: нет поля «${label}».`);
@@ -142,7 +158,7 @@ function requirePrices(value: unknown, label: string): void {
 }
 
 function assertPlayable(state: SimState): void {
-  if (state.version !== 4) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
+  if (state.version !== 5) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   if (typeof state.seed !== "number" || !Number.isFinite(state.seed)) throw new SaveError("Файл сохранения повреждён: нет зерна генератора.");
   for (const key of LISTS) {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
@@ -193,6 +209,10 @@ function assertPlayable(state: SimState): void {
     if (typeof house.name !== "string" || typeof house.crest !== "string") throw new SaveError("Файл сохранения повреждён: у дома нет имени.");
     if (!isMap(house.embargo) || !isMap(house.relation) || !isMap(house.tradeWith) || !isMap(house.lastTradeWith)) {
       throw new SaveError("Файл сохранения повреждён: у дома нет отношений.");
+    }
+    if (typeof house.successionPending !== "boolean") throw new SaveError("Файл сохранения повреждён: смена главы не отмечена.");
+    if (house.successionTick != null && (!Number.isInteger(house.successionTick) || house.successionTick < 0)) {
+      throw new SaveError("Файл сохранения повреждён: смена главы записана нечислом.");
     }
     houseIds.add(house.id);
   }
@@ -346,6 +366,27 @@ function assertPlayable(state: SimState): void {
   for (const entry of [...state.journal, ...state.aiLog]) {
     if (!entry || typeof entry.tick !== "number" || typeof entry.text !== "string") {
       throw new SaveError("Файл сохранения повреждён: запись журнала повреждена.");
+    }
+  }
+  const situationKinds = ["foodDependence", "tariffDispute", "brokenContract", "congestedPort", "exportShortage", "successionReview"];
+  for (const situation of state.situations) {
+    const broken = "Файл сохранения повреждён: политическое решение повреждено.";
+    if (!situation || typeof situation.id !== "string" || !situationKinds.includes(situation.kind)) throw new SaveError(broken);
+    if (!["open", "resolved", "expired"].includes(situation.status) || !houseIds.has(situation.houseId)) throw new SaveError(broken);
+    if (situation.choice != null && situation.choice !== "yield" && situation.choice !== "pay" && situation.choice !== "refuse") throw new SaveError(broken);
+    if (!requireInt(situation.openedTick, 0, 1_000_000_000) || !requireInt(situation.deadlineTick, 0, 1_000_000_000) || !requireInt(situation.cost, 0, 1_000_000_000) || !requireInt(situation.days, 0, 360) || !requireInt(situation.tariffBps, 0, 2500) || !requireInt(situation.qty, 0, 100000)) {
+      throw new SaveError(broken);
+    }
+    if (!(GOODS as readonly string[]).includes(situation.good) || typeof situation.cause !== "string") throw new SaveError(broken);
+  }
+  for (const grant of state.tariffGrants) {
+    if (!grant || typeof grant.id !== "string" || (grant.treatyId != null && typeof grant.treatyId !== "string") || !houseIds.has(grant.ownerId) || !houseIds.has(grant.beneficiaryId) || !requireInt(grant.bps, 0, 2500) || !requireInt(grant.untilTick, 0, 1_000_000_000)) {
+      throw new SaveError("Файл сохранения повреждён: скидка пошлины повреждена.");
+    }
+  }
+  for (const cool of state.cooldowns) {
+    if (!cool || !situationKinds.includes(cool.kind) || !houseIds.has(cool.houseId) || !requireInt(cool.untilTick, 0, 1_000_000_000)) {
+      throw new SaveError("Файл сохранения повреждён: пауза между решениями повреждена.");
     }
   }
   for (const person of state.people) {

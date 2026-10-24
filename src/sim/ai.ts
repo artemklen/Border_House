@@ -1,5 +1,6 @@
 import { dispatch } from "./commands";
 import { portIdea } from "./port";
+import { situationDecision } from "./politics";
 import { developmentIdea, transitFuelDiscount } from "./specialty";
 import { judgeContract } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
@@ -36,6 +37,12 @@ export function planAi(state: SimState): void {
         const result = dispatch(state, developmentPlan.command);
         noteAi(state, house.id, result.ok ? developmentPlan.because : `${house.name} не смог: ${result.reason}`);
       }
+    }
+    for (const situation of state.situations) {
+      if (situation.houseId !== house.id || situation.status !== "open") continue;
+      const choice = situationDecision(state, house, situation);
+      const decision = dispatch(state, { type: "resolveSituation", houseId: house.id, situationId: situation.id, choice });
+      noteAi(state, house.id, decision.ok ? `${house.name}: ${decision.reason}` : `${house.name} не стал решать: ${decision.reason}`);
     }
   }
 }
