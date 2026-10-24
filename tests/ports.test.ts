@@ -369,4 +369,33 @@ describe("порт", () => {
     expect(route.minLoad).toBe(15);
     expect(route.maxWait).toBe(4);
   });
+
+  it("выгрузка после лимита порта не называется полным складом", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const side = state.worlds.find((world) => world.id === "l-side")!;
+    const barge = placeShip(state, house.id, side, "barge", 0);
+    state.ships[0].routeId = null;
+    createGoods(barge.cargo, state.accounts, "ore", 80);
+    createGoods(barge.cargo, state.accounts, "parts", 10);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Две выгрузки",
+      shipId: barge.id,
+      stops: [
+        { worldId: "l-side", actions: [
+          { good: "ore", mode: "unload", amount: 80, price: 0, keep: 0 },
+          { good: "parts", mode: "unload", amount: 10, price: 0, keep: 0 },
+        ] },
+        { worldId: "l-ore", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(barge.cargo.ore).toBe(0);
+    expect(barge.cargo.parts).toBe(10);
+    expect(barge.stopReason ?? "").toContain("лимит порта");
+    expect(side.stock.parts).toBe(0);
+    expect(audit(state).errors).toEqual([]);
+  });
 });

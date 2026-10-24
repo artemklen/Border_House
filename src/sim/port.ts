@@ -258,21 +258,11 @@ function reasonKeepsItsText(reason: string): boolean {
   return reason.startsWith("нет топлива") || reason.startsWith("не хватает денег на транзитную") || reason.startsWith("нет доступа к следующей") || reason.startsWith("нет доступа: маршрут");
 }
 
-function berthMustYield(state: SimState, world: World, ship: Ship): boolean {
+function berthMustYield(_state: SimState, world: World, ship: Ship): boolean {
   const reason = ship.stopReason ?? "";
-  if (reason.startsWith("нет топлива")) return fuelCanUseTheBerth(state, world);
+  if (reason.startsWith("нет топлива")) return world.port.queue.length > 0;
   if (reason.startsWith("не хватает денег на транзитную") || reason.startsWith("нет доступа к следующей") || reason.startsWith("нет доступа: маршрут")) return true;
   return ship.portMoved === 0 && berthIsStuck(reason);
-}
-
-function fuelCanUseTheBerth(state: SimState, world: World): boolean {
-  return world.port.queue.some((id) => {
-    const other = shipOf(state, id);
-    if (!other) return false;
-    const route = other.routeId ? state.routes.find((item) => item.id === other.routeId) : undefined;
-    const stop = route?.stops.find((item) => item.worldId === world.id);
-    return Boolean(stop?.actions.some((action) => action.good === "fuel" && (action.mode === "unload" || action.mode === "sell" || action.mode === "load" || action.mode === "buy")));
-  });
 }
 
 function berthIsStuck(reason: string): boolean {

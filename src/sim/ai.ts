@@ -359,6 +359,21 @@ export function foodRouteNeedsFuel(state: SimState, ship: Ship, route: Route): b
   return ship.cargo.fuel < voyage;
 }
 
+/** Хватает ли топлива на круг продовольственного маршрута, даже если корабль сейчас в другом порту. */
+export function foodVoyageCovered(state: SimState, ship: Ship, route: Route): boolean {
+  if (!route.autoFuel) return false;
+  const pickup = route.stops.find((stop) => isFuelPickup(stop, route));
+  const other = pickup ? route.stops.find((stop) => stop.worldId !== pickup.worldId) : undefined;
+  if (!pickup || !other) return false;
+  const origin = worldOf(state, pickup.worldId);
+  const dest = worldOf(state, other.worldId);
+  if (!origin || !dest) return false;
+  const voyage = fuelForLeg(ship, origin, dest) + fuelForLeg(ship, dest, origin);
+  const here = ship.worldId ? worldOf(state, ship.worldId) : undefined;
+  const back = here && here.id !== origin.id ? fuelForLeg(ship, here, origin) : 0;
+  return ship.cargo.fuel >= voyage + back;
+}
+
 function isFoodTake(action: RouteStop["actions"][number]): boolean {
   return action.good === "food" && (action.mode === "load" || action.mode === "buy");
 }

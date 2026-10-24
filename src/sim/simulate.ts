@@ -1,4 +1,4 @@
-import { foodRouteNeedsFuel, planAi, refreshFoodFuel } from "./ai";
+import { foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
 import { payContractTakes, planSale, settleContractWindows } from "./contracts";
 import { advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
 import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
@@ -296,7 +296,7 @@ function serviceDock(state: SimState, ship: Ship): void {
   if (routeNow?.returnRouteId && routeOf(state, routeNow.returnRouteId)) {
     const home = routeOf(state, routeNow.returnRouteId);
     const fueled = routeNow.stops.some((stop) => stop.worldId === world.id && stop.actions.some((action) => action.good === "fuel" && (action.mode === "load" || action.mode === "buy")));
-    if (fueled && ship.cargo.fuel >= 20 && home && !foodRouteNeedsFuel(state, ship, home)) {
+    if (fueled && ship.cargo.fuel >= 20 && home && foodVoyageCovered(state, ship, home)) {
       const refuelId = routeNow.id;
       dispatch(state, { type: "assignShip", shipId: ship.id, routeId: routeNow.returnRouteId });
       if (state.ships.every((other) => other.routeId !== refuelId)) {
@@ -416,7 +416,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
           world.imported[slice.houseId][action.good] += slice.qty;
           countDelivery(state, slice.houseId, world, action.good, slice.qty);
         }
-      } else if (ship.cargo[action.good] > action.keep) {
+      } else if (!capped.limited && ship.cargo[action.good] > action.keep) {
         ship.stopReason = "склад заполнен";
         hold = true;
       }
