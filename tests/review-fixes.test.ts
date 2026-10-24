@@ -2041,4 +2041,14 @@ describe("замечания ревью", () => {
     raw.state.routes[0].pausedFood = { length: 1 };
     expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
   });
+
+  it("отрицательный и дробный склад не подменяют партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const negative = JSON.parse(serialize(state)) as { state: { worlds: Array<{ stock: { ore: number } }> } };
+    negative.state.worlds[0].stock.ore = -100;
+    expect(() => deserialize(JSON.stringify(negative))).toThrow(SaveError);
+    const fractional = JSON.parse(serialize(state)) as { state: { worlds: Array<{ stock: { food: number } }> } };
+    fractional.state.worlds[0].stock.food = 1.5;
+    expect(() => deserialize(JSON.stringify(fractional))).toThrow(SaveError);
+  });
 });

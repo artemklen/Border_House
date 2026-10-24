@@ -114,7 +114,7 @@ function assertPlayable(state: SimState): void {
     if (!world || typeof world.id !== "string" || !world.stock || !Array.isArray(world.buildings) || worldIds.has(world.id)) {
       throw new SaveError("Файл сохранения повреждён: мир без склада.");
     }
-    if (GOODS.some((good) => typeof world.stock[good] !== "number")) throw new SaveError("Файл сохранения повреждён: склад мира неполный.");
+    if (GOODS.some((good) => !Number.isInteger(world.stock[good]) || world.stock[good] < 0)) throw new SaveError("Файл сохранения повреждён: склад мира неполный.");
     requireGoods(world.prices, "цены");
     requireGoods(world.demand, "спрос");
     requireGoods(world.deposits, "месторождения");

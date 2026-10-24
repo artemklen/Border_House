@@ -163,6 +163,7 @@ export function App() {
     setOtherHouse(keptOtherHouseId(next.houses, playerId, otherHouse));
     setStopWorld(keptWorldId(next.worlds, ""));
     setDraftStops([]);
+    setConfirm(null);
     cameraRef.current = { x: 560, y: 380, zoom: 0.68 };
   }
 
