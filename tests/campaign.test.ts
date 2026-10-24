@@ -256,6 +256,17 @@ describe("подсказка первого рейса", () => {
     expect(hint).toContain("«Усадьба» держит продовольствие");
     expect(hint).not.toContain("печёт");
   });
+
+  it("не спорит с остановкой мельницы после тика без денег", () => {
+    const state = createBorderContractScenario();
+    const player = state.houses.find((house) => house.player)!;
+    player.credits = 0;
+    runTicks(state, 1);
+    player.credits = 8000;
+    const hint = hintLines(state).join(" ");
+    expect(hint).not.toContain("печёт");
+    expect(hint).toContain("нет денег на содержание");
+  });
 });
 
 function quotedNames(text: string): string[] {

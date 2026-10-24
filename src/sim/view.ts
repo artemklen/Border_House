@@ -1,6 +1,6 @@
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, GOOD_NAME, type GoodId } from "./goods";
-import { foodCover, foodNeed, houseOf, personOf, routeOf, worldOf } from "./mutate";
+import { availableCredits, foodCover, foodNeed, houseOf, personOf, routeOf, worldOf } from "./mutate";
 import { nextStopIndex, territoriesOnRoute } from "./simulate";
 import { plannedBatch } from "./specialty";
 import type { House, Ship, SimState, World } from "./types";
@@ -184,7 +184,7 @@ function firstVoyageHint(state: SimState, player: House): string {
   const market = markets.find((world) => world.id !== pantry?.id);
   const shipWord = state.ships.some((ship) => ship.houseId === player.id && ship.classId === "freighter") ? "грузовоз" : "корабль";
   if (!pantry) return `Откройте «Флот», соберите маршрут из двух миров и назначьте ${shipWord}.`;
-  const stockLine = bakesFood(pantry)
+  const stockLine = bakesFood(state, pantry)
     ? `«${pantry.name}» уже печёт продовольствие.`
     : pantry.stock.food > 0
       ? `«${pantry.name}» держит продовольствие.`
@@ -198,11 +198,14 @@ function firstVoyageHint(state: SimState, player: House): string {
   return line;
 }
 
-function bakesFood(world: World): boolean {
+function bakesFood(state: SimState, world: World): boolean {
+  const owner = world.ownerId ? houseOf(state, world.ownerId) : undefined;
   return world.buildings.some((building) => {
-    if (building.remainingDays > 0 || !building.enabled) return false;
+    if (building.remainingDays > 0 || !building.enabled || building.stopReason || building.workers <= 0) return false;
     const recipe = RECIPES[building.kind];
     if ((recipe.outputs.food ?? 0) <= 0) return false;
+    const shift = recipe.upkeep + building.workers * state.rules.wage;
+    if (!owner || availableCredits(owner) < shift) return false;
     return GOODS.every((good) => world.stock[good] >= (recipe.inputs[good] ?? 0));
   });
 }
