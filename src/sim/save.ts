@@ -144,6 +144,9 @@ function assertPlayable(state: SimState): void {
     if (world.ownerId && !houseIds.has(world.ownerId)) throw new SaveError("Файл сохранения повреждён: мир ссылается на неизвестный дом.");
     for (const building of world.buildings) {
       if (!building || typeof building.kind !== "string" || !Object.hasOwn(RECIPES, building.kind)) throw new SaveError("Файл сохранения повреждён: неизвестное предприятие.");
+      if (!Number.isInteger(building.remainingDays) || building.remainingDays < 0 || !Number.isInteger(building.workers) || building.workers < 0 || typeof building.enabled !== "boolean") {
+        throw new SaveError("Файл сохранения повреждён: предприятие без стройки или работников.");
+      }
       if (building.stopReason != null && typeof building.stopReason !== "string") throw new SaveError("Файл сохранения повреждён: у предприятия нет подписи.");
     }
     worldIds.add(world.id);
@@ -186,7 +189,7 @@ function assertPlayable(state: SimState): void {
     if (!treaty || typeof treaty.status !== "string" || typeof treaty.kind !== "string" || typeof treaty.proposerId !== "string" || typeof treaty.targetId !== "string") {
       throw new SaveError("Файл сохранения повреждён: договор повреждён.");
     }
-    if (typeof treaty.windowDays !== "number" || typeof treaty.endTick !== "number" || typeof treaty.delivered !== "number" || typeof treaty.qtyPerWindow !== "number" || typeof treaty.note !== "string" || !requireInt(treaty.tariffBps, 0, 2500)) {
+    if (typeof treaty.windowDays !== "number" || typeof treaty.endTick !== "number" || typeof treaty.delivered !== "number" || typeof treaty.qtyPerWindow !== "number" || typeof treaty.note !== "string" || !requireInt(treaty.tariffBps, 0, 2500) || !requireInt(treaty.duration, 12, 360)) {
       throw new SaveError("Файл сохранения повреждён: договор повреждён.");
     }
   }

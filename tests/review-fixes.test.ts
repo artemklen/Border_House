@@ -2188,4 +2188,65 @@ describe("замечания ревью", () => {
     expect(ship.cargo.fuel).toBe(45);
     expect(ship.status).toBe("transit");
   });
+
+  it("полный трюм без денег на новую покупку всё равно уходит", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    const market = state.worlds.find((world) => world.id === "w-vega")!;
+    for (const world of state.worlds) {
+      world.population = 0;
+      world.tariffBps = 0;
+      for (const building of world.buildings) building.enabled = false;
+    }
+    for (const other of state.ships) {
+      if (other.id === ship.id) continue;
+      other.status = "building";
+      other.remainingDays = 30;
+    }
+    ship.worldId = "w-vega";
+    ship.fromId = "w-vega";
+    ship.tollWorldId = "w-vega";
+    ship.status = "docked";
+    ship.cargo.fuel = 70;
+    market.stock.food = 40;
+    market.prices.food = 10;
+    player.credits = 5;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Уже полон",
+      shipId: ship.id,
+      stops: [
+        { worldId: "w-vega", actions: [{ good: "food", mode: "buy", amount: 10, price: 20, keep: 0 }] },
+        { worldId: "w-bread", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.cargo.food).toBe(0);
+    expect(ship.status).toBe("transit");
+  });
+
+  it("предприятие без стройки и договор без срока не подменяют партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const bare = JSON.parse(serialize(state)) as { state: { worlds: Array<{ buildings: unknown[] }> } };
+    bare.state.worlds[0].buildings[0] = { kind: "farm", enabled: true };
+    expect(() => deserialize(JSON.stringify(bare))).toThrow(SaveError);
+    const player = state.houses.find((house) => house.player)!;
+    const other = state.houses.find((house) => !house.player)!;
+    dispatch(state, {
+      type: "proposeTreaty",
+      houseId: player.id,
+      otherId: other.id,
+      kind: "transit",
+      tariffBps: 300,
+      good: "food",
+      qtyPerWindow: 0,
+      duration: 24,
+    });
+    const raw = JSON.parse(serialize(state)) as { state: { treaties: Array<{ duration?: number }> } };
+    delete raw.state.treaties[0].duration;
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
 });
