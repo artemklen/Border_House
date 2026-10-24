@@ -106,7 +106,13 @@ export function arrangePorts(state: SimState): void {
       if (!ship) continue;
       ship.portAllowance = 0;
       ship.portMoved = 0;
-      ship.stopReason = `очередь порта «${world.name}»: место ${index + 1} из ${port.queue.length}, примерно ${index + 1} дн. Причал занят. Контрактный груз этой очереди не обходит.`;
+      const notice = `очередь порта «${world.name}»: место ${index + 1} из ${port.queue.length}, примерно ${index + 1} дн. Причал занят. Контрактный груз этой очереди не обходит.`;
+      const prior = ship.stopReason ?? "";
+      const splitAt = prior.indexOf(" очередь порта");
+      const fuel = (splitAt >= 0 ? prior.slice(0, splitAt) : prior).startsWith("нет топлива")
+        ? (splitAt >= 0 ? prior.slice(0, splitAt) : prior)
+        : "";
+      ship.stopReason = fuel ? `${fuel} ${notice}` : notice;
     }
   }
 }

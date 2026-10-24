@@ -709,4 +709,42 @@ describe("порт", () => {
     expect(first.status).toBe("docked");
     expect(second.status).toBe("docked");
   });
+
+  it("очередь сохраняет причину нехватки топлива", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    const holder = state.ships[0];
+    const dry = placeShip(state, house.id, ore, "freighter", 0);
+    holder.portArrived = 1;
+    dry.portArrived = 2;
+    dry.stopReason = "нет топлива на следующий перегон";
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Держит причал",
+      shipId: holder.id,
+      minLoad: 200,
+      maxWait: 10,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Сухой рейс",
+      shipId: dry.id,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    runTicks(state, 2);
+    expect(ore.port.queue).toContain(dry.id);
+    expect(dry.stopReason ?? "").toContain("нет топлива");
+    expect(dry.stopReason ?? "").toContain("очередь порта");
+    expect(dry.stopReason?.match(/очередь порта/g)?.length).toBe(1);
+  });
 });
