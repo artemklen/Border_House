@@ -1,6 +1,7 @@
 import { SHIP_CLASSES } from "./config";
-import { GOOD_NAME, sumGoods } from "./goods";
+import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
 import {
+  accessDenied,
   availableCredits,
   byId,
   createGoods,
@@ -16,6 +17,7 @@ import {
   serial,
   shiftRelation,
   shipOf,
+  tariffBetween,
   worldOf,
 } from "./mutate";
 import { SPEED_PARTS, expandPort } from "./port";
@@ -73,95 +75,105 @@ export function describeGoal(state: SimState, house: House): { kind: GoalKind; t
 
 export function choicePreview(situation: Situation, choice: SituationChoice): string[] {
   const label = SITUATION_LABEL[situation.kind];
-  const term = `Срок эффекта ${situation.days} дн. Окно выбора до тика ${situation.deadlineTick}: пауза его не тратит. Просрочка не списывает казну.`;
+  const windowNote = `Окно выбора до тика ${situation.deadlineTick}: пауза его не тратит. Просрочка не списывает казну.`;
+  const lasting = `Срок эффекта ${situation.days} дн. ${windowNote}`;
+  const once = `Платёж разовый и не отменяется через ${situation.days} дн. ${windowNote}`;
+  const persistent = `Этот исход не кончается через ${situation.days} дн.: эмбарго, паузу маршрута или разрыв договора снимают отдельным действием. ${windowNote}`;
+  if (choice === "refuse" && situation.kind === "exportShortage") {
+    return [
+      `${label}: отказ не двигает товары и не переводит кредиты.`,
+      "Отношения +2. Экспортный маршрут остаётся, эмбарго не вводится.",
+      persistent,
+    ];
+  }
   if (choice === "refuse") {
     return [
       `${label}: отказ не двигает товары и не переводит кредиты.`,
-      "Отношения падают. Где ситуация про доступ, дом закрывает эмбарго или разрывает действующий договор.",
-      `Риск: снабжение и транзит остаются под тем же давлением. ${term}`,
+      "Отношения падают. Где ситуация про доступ, дом закрывает эмбарго или разрывает действующий договор. Этот запрет сам не сгорает.",
+      persistent,
     ];
   }
   if (situation.kind === "foodDependence" && choice === "yield") {
     return [
       `Договор снабжения: поставщик везёт ${situation.qty} ${GOOD_NAME[situation.good]} за окно, ${situation.days} дн., пошлина договора ${situation.tariffBps / 100}%.`,
-      "Еда не появляется из события: её привезёт рейс. Отношения +6. Если договор уже действует, второй не открывается и эмбарго не вводится.",
-      term,
+      "Еда не появляется из события: её привезёт рейс. Пошлина столицы для поставщика становится не выше обещанной. Отношения +6. Если договор уже действует, второй не открывается и эмбарго не вводится.",
+      lasting,
     ];
   }
   if (situation.kind === "foodDependence" && choice === "pay") {
     return [
       `Сразу купить ${situation.qty} ${GOOD_NAME[situation.good]} на корабль у склада контрагента за ${situation.cost} кред.`,
-      "Нужны свободные кредиты, товар на складе и свой корабль у этого мира. Иначе приказ не исполняется и деньги не уходят.",
-      term,
+      "Нужны свободные кредиты, товар на складе, свой корабль у этого мира и открытый доступ. Иначе приказ не исполняется и деньги не уходят.",
+      once,
     ];
   }
   if (situation.kind === "tariffDispute" && choice === "yield") {
     return [
       `Продать гостю ${situation.qty} продовольствия за ${situation.cost} кред. и держать для него пошлину ${situation.tariffBps / 100}% ещё ${situation.days} дн.`,
-      "Товар списывается с нашего склада в его трюм. Отношения +8. Без корабля, еды или его денег уступка не исполняется.",
-      term,
+      "Товар списывается с нашего склада в его трюм. Отношения +8. Без корабля, еды, его денег или при эмбарго уступка не исполняется.",
+      lasting,
     ];
   }
   if (situation.kind === "tariffDispute" && choice === "pay") {
     return [
       `Компенсация ${situation.cost} кред. гостю. Пошлина мира не меняется, еда не двигается.`,
       "Отношения +3. Если в казне меньше суммы, перевод не начинается.",
-      term,
+      once,
     ];
   }
   if (situation.kind === "brokenContract" && choice === "yield") {
     return [
       `Продавец переводит покупателю ${situation.cost} кред. компенсации. Новый товар не создаётся.`,
       "Отношения +5. Нет суммы — решение остаётся открытым.",
-      term,
+      once,
     ];
   }
   if (situation.kind === "brokenContract" && choice === "pay") {
     return [
       `Покупатель платит продавцу ${situation.cost} кред. отступных. Склад не пополняется.`,
       "Отношения +3.",
-      term,
+      once,
     ];
   }
   if (situation.kind === "congestedPort" && choice === "yield") {
     return [
       `Для этого дома пошлина порта ${situation.tariffBps / 100}% на ${situation.days} дн. Очередь сама не исчезает.`,
       "Отношения +4.",
-      term,
+      lasting,
     ];
   }
   if (situation.kind === "congestedPort" && choice === "pay") {
     return [
       "Начать ускорение обработки порта: кредиты уйдут населению, комплектующие спишутся со склада.",
-      "Если стройка уже идёт или ресурсов нет, решение не принимается и очередь остаётся.",
-      term,
+      "Если стройка уже идёт или ресурсов нет, решение не принимается и очередь остаётся. Готовое ускорение само не отменяется через срок решения.",
+      once,
     ];
   }
   if (situation.kind === "exportShortage" && choice === "yield") {
     return [
       "Экспортный маршрут встаёт на паузу. Уже загруженный трюм не телепортируется обратно.",
-      "Отношения с покупателем −3, если он известен.",
-      term,
+      "Отношения с покупателем −3, если он известен. Пауза маршрута сама не снимается.",
+      persistent,
     ];
   }
   if (situation.kind === "exportShortage" && choice === "pay") {
     return [
       `Купить ${situation.qty} ${GOOD_NAME[situation.good]} на свой корабль за ${situation.cost} кред., маршрут экспорта не трогать.`,
-      "Нужен корабль у чужого склада с этим товаром. Иначе оплата не проходит.",
-      term,
+      "Нужен свой корабль у чужого склада с этим товаром и без эмбарго. Иначе оплата не проходит.",
+      once,
     ];
   }
   if (situation.kind === "successionReview" && choice === "yield") {
     return [
       `Продлить договор на ${situation.days} дн. и опустить его пошлину до ${situation.tariffBps / 100}%, если она выше.`,
       "Отношения +4. Казна не трогается.",
-      term,
+      lasting,
     ];
   }
   return [
     `Компенсация ${situation.cost} кред. другой стороне. Текст договора не меняется.`,
     "Отношения +5. Нет суммы — решение остаётся открытым.",
-    term,
+    once,
   ];
 }
 
@@ -293,8 +305,10 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
       windowDays: 0,
       note: "Поставка по решению о зависимости. Еда приходит только рейсом.",
     });
+    const capital = worldOf(state, house.capitalId);
+    if (capital) putGrant(state, capital.id, house.id, other.id, situation.tariffBps, situation.days);
     shiftRelation(state, house.id, other.id, 6);
-    note(state, house.id, `${SITUATION_LABEL[situation.kind]}: уступка. Договор на ${situation.qty} ${GOOD_NAME[situation.good]} и ${situation.days} дн. Отношения +6. Еда из события не создана.`);
+    note(state, house.id, `${SITUATION_LABEL[situation.kind]}: уступка. Договор на ${situation.qty} ${GOOD_NAME[situation.good]} и ${situation.days} дн. Пошлина столицы для поставщика не выше ${situation.tariffBps / 100}% на этот срок. Отношения +6. Еда из события не создана.`);
     return null;
   }
   if (situation.kind === "foodDependence" && choice === "pay") {
@@ -447,7 +461,7 @@ function openFoodDependence(state: SimState, house: House): void {
 
 function openTariffDispute(state: SimState, house: House): void {
   for (const world of state.worlds) {
-    if (world.ownerId !== house.id || world.tariffBps < 800) continue;
+    if (world.ownerId !== house.id) continue;
     const ship = foreignShipAt(state, world, house.id);
     if (!ship) continue;
     const other = houseOf(state, ship.houseId);
@@ -455,6 +469,8 @@ function openTariffDispute(state: SimState, house: House): void {
     if (!other || !capital) continue;
     const cover = foodCover(capital.population, capital.stock.food, state.rules.foodPer100);
     if (cover >= 12) continue;
+    const charged = tariffBetween(state, other.id, house.id, world.tariffBps, world.id);
+    if (charged < 800) continue;
     pushSituation(state, house, {
       kind: "tariffDispute",
       otherId: other.id,
@@ -463,7 +479,7 @@ function openTariffDispute(state: SimState, house: House): void {
       contractId: null,
       treatyId: null,
       shipId: ship.id,
-      cause: `«${world.name}» берёт ${world.tariffBps / 100}%. Столица ${other.name} сыта на ${cover} дн., их корабль стоит у нашего причала.`,
+      cause: `«${world.name}» берёт с ${other.name} ${charged / 100}%. Столица ${other.name} сыта на ${cover} дн., их корабль стоит у нашего причала.`,
       cost: FOOD_QTY * FOOD_PRICE,
       days: EFFECT_DAYS,
       tariffBps: GRANT_BPS,
@@ -503,23 +519,23 @@ function openExportShortage(state: SimState, house: House): void {
   if (!capital || foodCover(capital.population, capital.stock.food, state.rules.foodPer100) >= 10) return;
   const route = exportRoute(state, house);
   if (!route) return;
-  const stop = route.stops.find((item) => item.actions.some((action) => (action.mode === "sell" || action.mode === "unload") && (action.good === "food" || action.good === "grain" || action.good === "ore")));
-  const world = worldOf(state, stop?.worldId ?? null);
-  const action = stop?.actions.find((item) => item.mode === "sell" || item.mode === "unload");
+  const abroad = foreignExport(state, house, route);
+  if (!abroad) return;
+  const { world, good } = abroad;
   pushSituation(state, house, {
     kind: "exportShortage",
-    otherId: world?.ownerId && world.ownerId !== house.id ? world.ownerId : null,
-    worldId: world?.id ?? null,
+    otherId: world.ownerId && world.ownerId !== house.id ? world.ownerId : null,
+    worldId: world.id,
     routeId: route.id,
     contractId: null,
     treatyId: null,
     shipId: null,
-    cause: `Маршрут «${route.name}» вывозит ${GOOD_NAME[action?.good ?? "food"]}, а столица сыта на ${foodCover(capital.population, capital.stock.food, state.rules.foodPer100)} дн.`,
+    cause: `Маршрут «${route.name}» вывозит ${GOOD_NAME[good]}, а столица сыта на ${foodCover(capital.population, capital.stock.food, state.rules.foodPer100)} дн.`,
     cost: FOOD_QTY * FOOD_PRICE,
     days: EFFECT_DAYS,
     tariffBps: 0,
     qty: FOOD_QTY,
-    good: action?.good ?? "food",
+    good,
   });
 }
 
@@ -600,6 +616,7 @@ function cargoPurchaseBlock(state: SimState, buyer: House, seller: House | undef
   const world = worldOf(state, situation.worldId);
   const ship = liveShip(state, buyer.id, situation);
   if (!world || world.ownerId !== seller.id) return "склад продавца недоступен";
+  if (accessDenied(state, buyer.id, world)) return "эмбарго закрывает склад";
   if (!ship) return "свой корабль уже не стоит у склада";
   if (world.stock[situation.good] < situation.qty) return `на складе меньше ${situation.qty} ${GOOD_NAME[situation.good]}`;
   if (SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) < situation.qty) return "в трюме нет места";
@@ -624,6 +641,7 @@ function visitorSaleBlock(state: SimState, seller: House, buyer: House | undefin
   const world = worldOf(state, situation.worldId);
   const ship = buyer ? liveShip(state, buyer.id, situation) : undefined;
   if (!world || world.ownerId !== seller.id) return "нет нашего порта";
+  if (accessDenied(state, buyer.id, world)) return "эмбарго закрывает порт";
   if (!ship || ship.houseId !== buyer.id || ship.worldId !== world.id || ship.status === "transit" || ship.status === "building") return "корабль гостя уже ушёл";
   if (world.stock.food < situation.qty) return `на складе меньше ${situation.qty} продовольствия`;
   if (SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) < situation.qty) return "в трюме гостя нет места";
@@ -665,6 +683,16 @@ function foreignShipAt(state: SimState, world: World, ownerId: string): Ship | u
   for (const id of ids) {
     const ship = shipOf(state, id);
     if (ship && ship.houseId !== ownerId) return ship;
+  }
+  return undefined;
+}
+
+function foreignExport(state: SimState, house: House, route: Route): { world: World; good: GoodId } | undefined {
+  for (const stop of route.stops) {
+    const world = worldOf(state, stop.worldId);
+    if (!world || world.ownerId === house.id) continue;
+    const action = stop.actions.find((item) => (item.mode === "sell" || item.mode === "unload") && (item.good === "food" || item.good === "grain" || item.good === "ore"));
+    if (action) return { world, good: action.good };
   }
   return undefined;
 }

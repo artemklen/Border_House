@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { dispatch } from "../src/sim/commands";
 import { createSkeleton, endowHouse, endowWorld, placeFamily, placeShip } from "../src/sim/create";
 import { createCrisisScenario } from "../src/sim/diagnostics";
-import { audit, hashState } from "../src/sim/mutate";
-import { advanceSituations, situationDecision } from "../src/sim/politics";
+import { audit, hashState, tariffBetween } from "../src/sim/mutate";
+import { advanceSituations, choicePreview, situationDecision } from "../src/sim/politics";
 import { deserialize, serialize } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
 import type { SimState, Treaty } from "../src/sim/types";
@@ -319,6 +319,83 @@ describe("политические решения", () => {
     expect(seller.flow.compensation).toBe(0);
     expect(buyer.tradeWith[seller.id]).toBe(120);
     expect(audit(state).ok).toBe(true);
+  });
+
+  it("уступка снижает фактическую пошлину, эмбарго блокирует покупку, а экспорт смотрит чужую остановку", () => {
+    const hungry = foodCase(0);
+    const capital = hungry.worlds.find((world) => world.id === "f-cap")!;
+    capital.tariffBps = 900;
+    advanceSituations(hungry);
+    const player = hungry.houses[0];
+    const supplier = hungry.houses[1];
+    dispatch(hungry, { type: "resolveSituation", houseId: player.id, situationId: hungry.situations[0].id, choice: "yield" });
+    expect(tariffBetween(hungry, supplier.id, player.id, capital.tariffBps, capital.id)).toBe(200);
+    expect(hungry.treaties[0].proposerId).toBe(supplier.id);
+
+    const blocked = createCrisisScenario();
+    const port = blocked.worlds.find((world) => world.id === "c-port")!;
+    const owner = blocked.houses[0];
+    const guest = blocked.houses[1];
+    const food = port.stock.food;
+    owner.embargo[guest.id] = true;
+    const denied = dispatch(blocked, { type: "resolveSituation", houseId: owner.id, situationId: blocked.situations[0].id, choice: "yield" });
+    expect(denied.ok).toBe(false);
+    expect(port.stock.food).toBe(food);
+    expect(blocked.situations[0].status).toBe("open");
+
+    const discounted = createCrisisScenario();
+    const gate = discounted.worlds.find((world) => world.id === "c-port")!;
+    const host = discounted.houses[0];
+    const visitor = discounted.houses[1];
+    discounted.treaties.push({
+      id: "t-cheap",
+      kind: "transit",
+      proposerId: visitor.id,
+      targetId: host.id,
+      status: "active",
+      startTick: 0,
+      endTick: 48,
+      duration: 48,
+      tariffBps: 100,
+      good: "food",
+      qtyPerWindow: 0,
+      delivered: 0,
+      windowDays: 0,
+      note: "дешёвый транзит",
+    });
+    discounted.situations = [];
+    advanceSituations(discounted);
+    expect(discounted.situations.some((item) => item.kind === "tariffDispute")).toBe(false);
+    expect(tariffBetween(discounted, visitor.id, host.id, gate.tariffBps, gate.id)).toBe(100);
+
+    const mixed = createSkeleton(9, "mixed-export");
+    mixed.aiEnabled = false;
+    const exporter = endowHouse(mixed, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 4000 });
+    const home = endowWorld(mixed, { id: "m-home", name: "Столица", specialty: "дом", x: 0, y: 0, ownerId: exporter.id, population: 80, popMoneyPerCapita: 2, stock: { food: 0, ore: 20 } });
+    const buyer = endowHouse(mixed, { name: "Рынок", color: "#333", crest: "РЫ", profile: "industrial", player: false, credits: 1000 });
+    const market = endowWorld(mixed, { id: "m-out", name: "Руда", specialty: "рынок", x: 80, y: 0, ownerId: buyer.id, population: 10, popMoneyPerCapita: 2, stock: { ore: 5 } });
+    exporter.capitalId = home.id;
+    buyer.capitalId = market.id;
+    dispatch(mixed, {
+      type: "createRoute",
+      houseId: exporter.id,
+      name: "Сначала своё, потом руда",
+      stops: [
+        { worldId: home.id, actions: [{ good: "food", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+        { worldId: market.id, actions: [{ good: "ore", mode: "sell", amount: 4, price: 0, keep: 0 }] },
+      ],
+    });
+    advanceSituations(mixed);
+    expect(mixed.situations[0].good).toBe("ore");
+    expect(mixed.situations[0].worldId).toBe(market.id);
+    expect(mixed.situations[0].otherId).toBe(buyer.id);
+
+    const refusal = choicePreview(mixed.situations[0], "refuse").join(" ");
+    expect(refusal).toContain("+2");
+    expect(refusal).not.toContain("падают");
+    const tariffRefusal = choicePreview(blocked.situations[0], "refuse").join(" ");
+    expect(tariffRefusal).toContain("не сгорает");
+    expect(tariffRefusal).not.toContain("Срок эффекта");
   });
 });
 
