@@ -5,8 +5,7 @@ import {
   accessDenied,
   availableCredits,
   byId,
-  createGoods,
-  destroyGoods,
+  moveGoods,
   foodCover,
   houseOf,
   moveCredits,
@@ -519,6 +518,7 @@ function openCongestedPort(state: SimState, house: House): void {
     if (world.ownerId !== house.id || world.port.queue.length < 2) continue;
     const ship = foreignShipAt(state, world, house.id);
     if (!ship) continue;
+    const before = state.situations.length;
     pushSituation(state, house, {
       kind: "congestedPort",
       otherId: ship.houseId,
@@ -534,7 +534,7 @@ function openCongestedPort(state: SimState, house: House): void {
       qty: 0,
       good: "food",
     });
-    return;
+    if (state.situations.length > before) return;
   }
 }
 
@@ -700,8 +700,7 @@ function moveCargoPurchase(state: SimState, buyer: House, seller: House | undefi
   const route = routeOf(state, ship.routeId);
   notePortMove(world, route, situation.qty);
   if (route) route.cost += situation.cost;
-  destroyGoods(world.stock, state.accounts, situation.good, situation.qty);
-  createGoods(ship.cargo, state.accounts, situation.good, situation.qty);
+  moveGoods(world.stock, ship.cargo, situation.good, situation.qty);
   rememberSupply(ship, situation.good, seller.id, situation.qty);
   return null;
 }
@@ -731,8 +730,7 @@ function sellToVisitor(state: SimState, seller: House, buyer: House, situation: 
   const route = routeOf(state, ship.routeId);
   notePortMove(world, route, situation.qty);
   if (route) route.cost += situation.cost;
-  destroyGoods(world.stock, state.accounts, "food", situation.qty);
-  createGoods(ship.cargo, state.accounts, "food", situation.qty);
+  moveGoods(world.stock, ship.cargo, "food", situation.qty);
   rememberSupply(ship, "food", seller.id, situation.qty);
   return null;
 }

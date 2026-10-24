@@ -26,12 +26,16 @@ describe("политические решения", () => {
     const player = yielded.houses[0];
     const rival = yielded.houses[1];
     const foodBefore = port.stock.food;
+    const createdBefore = yielded.accounts.goodsCreated.food;
+    const destroyedBefore = yielded.accounts.goodsDestroyed.food;
     const creditsBefore = player.credits;
     const relationBefore = player.relation[rival.id] ?? 0;
     const yes = dispatch(yielded, { type: "resolveSituation", houseId: player.id, situationId: yielded.situations[0].id, choice: "yield" });
     expect(yes.ok).toBe(true);
     expect(port.stock.food).toBe(foodBefore - 10);
     expect(ship.cargo.food).toBe(10);
+    expect(yielded.accounts.goodsCreated.food).toBe(createdBefore);
+    expect(yielded.accounts.goodsDestroyed.food).toBe(destroyedBefore);
     expect(ship.portMoved).toBe(10);
     expect(port.port.handled).toBe(10);
     expect(yielded.routes[0].cost).toBe(120);
@@ -106,6 +110,20 @@ describe("политические решения", () => {
     crowded.situations = [];
     advanceSituations(crowded);
     expect(crowded.situations).toHaveLength(0);
+
+    const secondPort = endowWorld(crowded, { id: "q-side", name: "Вторая", specialty: "порт", x: 40, y: 0, ownerId: player.id, population: 10, popMoneyPerCapita: 2, stock: { food: 20 }, tariffBps: 100 });
+    const otherGuest = endowHouse(crowded, { name: "Другой", color: "#844", crest: "ДР", profile: "merchant", player: false, credits: 1000 });
+    endowWorld(crowded, { id: "q-other", name: "Дом другого", specialty: "дом", x: 140, y: 0, ownerId: otherGuest.id, population: 10, popMoneyPerCapita: 2, stock: { food: 40 } });
+    otherGuest.capitalId = "q-other";
+    const sideShip = placeShip(crowded, otherGuest.id, secondPort, "skiff", 5);
+    const sideLocal = placeShip(crowded, player.id, secondPort, "skiff", 5);
+    port.port.queue = [foreign.id, local.id];
+    secondPort.port.queue = [sideShip.id, sideLocal.id];
+    advanceSituations(crowded);
+    const firstCrowd = crowded.situations.find((item) => item.kind === "congestedPort")!;
+    dispatch(crowded, { type: "resolveSituation", houseId: player.id, situationId: firstCrowd.id, choice: "refuse" });
+    advanceSituations(crowded);
+    expect(crowded.situations.some((item) => item.kind === "congestedPort" && item.status === "open" && item.worldId === secondPort.id)).toBe(true);
 
     const exporting = createSkeleton(5, "export");
     exporting.aiEnabled = false;
