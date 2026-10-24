@@ -163,7 +163,7 @@ function runBuilding(state: SimState, world: World, building: Building): void {
     inputs[good] = batch.inputs[good] ?? 0;
     outputs[good] = batch.outputs[good] ?? 0;
   }
-  building.lastBatch = { inputs, outputs, workers: batch.workers };
+  building.lastBatch = { inputs, outputs, workers: building.workers };
   building.stopReason = null;
 }
 

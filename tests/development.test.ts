@@ -354,6 +354,7 @@ describe("развитие миров", () => {
     expect(ore.stock.alloys).toBe(6);
     const text = explainBuilding(state, building.id);
     expect(text).toContain("8 руда → 6 сплавы");
+    expect(text).toContain(`Нужно работников: ${building.workers}, на месте ${building.workers}`);
     expect(text).toContain("Полная партия идёт");
   });
 
