@@ -1,6 +1,6 @@
 import { foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
 import { payContractTakes, planSale, settleContractWindows } from "./contracts";
-import { advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
+import { advanceLoadWaits, advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
 import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
@@ -242,6 +242,7 @@ function sail(state: SimState): void {
   }
   releaseIdleBerths(state);
   recordPortDays(state);
+  advanceLoadWaits(state);
 }
 
 function prepareDock(state: SimState, ship: Ship, upkeepPaid = false): void {
@@ -314,7 +315,7 @@ function serviceDock(state: SimState, ship: Ship): void {
   const here = routeNow && planned && planned.worldId === world.id ? planned : routeNow?.stops.find((stop) => stop.worldId === world.id);
   const pickup = here?.actions.some((action) => action.good !== "fuel" && (action.mode === "load" || action.mode === "buy"));
   if (routeNow && !pickup) ship.loadWait = 0;
-  const verdict = routeNow && pickup ? holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity) : "open";
+  const verdict = routeNow && pickup && !stopResult.deliveryHeld ? holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity) : "open";
   if (verdict === "waiting") return;
   if (stopResult.deliveryHeld) return;
   if (hold && verdict !== "expired" && verdict !== "met") return;
@@ -369,6 +370,11 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
   const stop = planned && planned.worldId === world.id ? planned : route.stops.find((item) => item.worldId === world.id);
   let hold = false;
   let deliveryHeld = false;
+  let deliveryReason: string | null = null;
+  const markDelivery = (): void => {
+    deliveryHeld = true;
+    deliveryReason = ship.stopReason;
+  };
   if (!stop) {
     if (!route.stops.some((item) => item.worldId === world.id)) {
       ship.stopReason = "маршрут изменён, корабль завершил текущий перегон";
@@ -415,7 +421,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
       if ((qty < Math.min(wanted, eligible) && roomStock <= qty) || capped.limited) {
         ship.stopReason = capped.limited ? "лимит порта на сегодня исчерпан" : "склад заполнен";
         hold = true;
-        deliveryHeld = true;
+        markDelivery();
       }
       if (qty > 0) {
         moveGoods(ship.cargo, world.stock, action.good, qty);
@@ -429,7 +435,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
       } else if (!capped.limited && ship.cargo[action.good] > action.keep) {
         ship.stopReason = "склад заполнен";
         hold = true;
-        deliveryHeld = true;
+        markDelivery();
       }
       continue;
     }
@@ -467,16 +473,16 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
       else if (capped.limited && capped.qty === 0) {
         ship.stopReason = "лимит порта на сегодня исчерпан";
         hold = true;
-        if (action.mode === "sell") deliveryHeld = true;
+        if (action.mode === "sell") markDelivery();
       }       else if (sale?.blocked === "price") {
         ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
         hold = true;
-        deliveryHeld = true;
+        markDelivery();
       } else if (affordable <= 0 || sale?.blocked === "money") {
         ship.stopReason = "у покупателя нет денег";
         if (!(action.mode === "buy" && room <= 0)) {
           hold = true;
-          if (action.mode === "sell") deliveryHeld = true;
+          if (action.mode === "sell") markDelivery();
         }
       } else if (action.mode === "buy") {
         ship.stopReason = action.good === "fuel" && ship.cargo.fuel > 0
@@ -485,7 +491,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
       } else {
         ship.stopReason = "нет места под груз или на складе";
         hold = true;
-        deliveryHeld = true;
+        markDelivery();
       }
       continue;
     }
@@ -523,25 +529,26 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
     if (sale && sale.blocked === "price" && qty < wanted) {
       ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
       hold = true;
-      deliveryHeld = true;
+      markDelivery();
     } else if (sale && sale.blocked === "money" && qty < wanted) {
       ship.stopReason = "у покупателя нет денег";
       hold = true;
-      if (action.mode === "sell") deliveryHeld = true;
+      if (action.mode === "sell") markDelivery();
     } else if (!sale && qty < wanted && affordable <= qty && !(action.mode === "buy" && room <= qty)) {
       ship.stopReason = "у покупателя нет денег";
       hold = true;
-      if (action.mode === "sell") deliveryHeld = true;
+      if (action.mode === "sell") markDelivery();
     } else if (action.mode === "sell" && qty < wanted && room <= qty) {
       ship.stopReason = "склад заполнен";
       hold = true;
-      deliveryHeld = true;
+      markDelivery();
     } else if (capped.limited && qty < wanted) {
       ship.stopReason = "лимит порта на сегодня исчерпан";
       hold = true;
-      if (action.mode === "sell") deliveryHeld = true;
+      if (action.mode === "sell") markDelivery();
     }
   }
+  if (deliveryReason) ship.stopReason = deliveryReason;
   return { hold, deliveryHeld };
 }
 

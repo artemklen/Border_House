@@ -155,6 +155,22 @@ export function leavePort(state: SimState, ship: Ship): void {
   ship.portAllowance = 0;
 }
 
+export function advanceLoadWaits(state: SimState): void {
+  for (const ship of state.ships) {
+    if (!ship.worldId || !ship.routeId) continue;
+    const world = worldOf(state, ship.worldId);
+    const route = state.routes.find((item) => item.id === ship.routeId);
+    if (!world || !route || route.paused || route.minLoad <= 0) continue;
+    if (!world.port.berth.includes(ship.id) && !world.port.queue.includes(ship.id)) continue;
+    const planned = route.stops[ship.stopIndex];
+    const here = planned && planned.worldId === world.id ? planned : route.stops.find((stop) => stop.worldId === world.id);
+    if (!here?.actions.some((action) => action.good !== "fuel" && (action.mode === "load" || action.mode === "buy"))) continue;
+    const dry = ship.cargo.grain + ship.cargo.food + ship.cargo.ore + ship.cargo.alloys + ship.cargo.parts;
+    if (dry >= route.minLoad) continue;
+    ship.loadWait += 1;
+  }
+}
+
 export function recordPortDays(state: SimState): void {
   for (const ship of state.ships) {
     const route = ship.routeId ? state.routes.find((item) => item.id === ship.routeId) : undefined;
@@ -177,10 +193,10 @@ export function holdForLoad(ship: Ship, route: Route, capacity: number): "open" 
   }
   const conflict = route.minLoad > capacity - ship.cargo.fuel;
   if (ship.loadWait < route.maxWait) {
-    ship.loadWait += 1;
+    const day = ship.loadWait + 1;
     ship.stopReason = conflict
-      ? `минимум ${route.minLoad} ед. не влезает рядом с топливом ${ship.cargo.fuel}. Ждём ${ship.loadWait} из ${route.maxWait}, затем частичный рейс.`
-      : `ждём загрузку ${dry} из ${route.minLoad}. День ${ship.loadWait} из ${route.maxWait}, затем частичный рейс.`;
+      ? `минимум ${route.minLoad} ед. не влезает рядом с топливом ${ship.cargo.fuel}. Ждём ${day} из ${route.maxWait}, затем частичный рейс.`
+      : `ждём загрузку ${dry} из ${route.minLoad}. День ${day} из ${route.maxWait}, затем частичный рейс.`;
     return "waiting";
   }
   ship.stopReason = conflict
