@@ -1,8 +1,9 @@
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, GOOD_NAME, type GoodId } from "./goods";
 import { availableCredits, foodCover, foodNeed, houseOf, personOf, routeOf, worldOf } from "./mutate";
+import { BERTH_UPKEEP, SPEED_UPKEEP } from "./port";
 import { nextStopIndex, territoriesOnRoute } from "./simulate";
-import { plannedBatch } from "./specialty";
+import { plannedBatch, transitUpkeep } from "./specialty";
 import type { House, Ship, SimState, World } from "./types";
 
 export function foodPerDay(population: number, foodPer100: number): number {
@@ -188,8 +189,10 @@ export function treasuryOutlook(state: SimState, houseId: string): { wages: numb
       if (building.remainingDays > 0 || !building.enabled) continue;
       const recipe = RECIPES[building.kind];
       upkeep += recipe.upkeep;
-      wages += (building.workers > 0 ? building.workers : recipe.workers) * state.rules.wage;
+      wages += building.workers * state.rules.wage;
     }
+    upkeep += (world.port.berthLevel > 0 ? BERTH_UPKEEP : 0) + (world.port.speedLevel > 0 ? SPEED_UPKEEP : 0);
+    upkeep += transitUpkeep(world);
   }
   for (const ship of state.ships) {
     if (ship.houseId !== houseId || ship.status === "building") continue;

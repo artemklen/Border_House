@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dispatch } from "../src/sim/commands";
-import { createGame } from "../src/sim/create";
+import { createGame, createSkeleton, endowHouse, endowWorld, placeBuilding } from "../src/sim/create";
 import { tick } from "../src/sim/simulate";
 import type { Flow } from "../src/sim/types";
 import { hintLines, treasuryOutlook, treasuryWarning } from "../src/sim/view";
@@ -74,5 +74,25 @@ describe("казна базовой партии", () => {
     }
     expect(sold).toBeGreaterThan(0);
     expect(sold).toBeLessThan(51);
+  });
+
+  it("не выдумывает смену без работников и считает содержание порта и транзита", () => {
+    const state = createSkeleton(21, "fixture");
+    const house = endowHouse(state, { name: "Дом Солар", color: "#e0a84a", crest: "СЛ", profile: "player", player: true, credits: 200 });
+    const world = endowWorld(state, { name: "Поле", specialty: "хлеб", x: 0, y: 0, ownerId: house.id, population: 16, popMoneyPerCapita: 0 });
+    house.capitalId = world.id;
+    placeBuilding(state, world, house.id, "farm");
+    placeBuilding(state, world, house.id, "farm");
+    tick(state);
+    expect(world.buildings.map((building) => building.workers)).toEqual([16, 0]);
+    expect(treasuryOutlook(state, house.id)).toEqual({ wages: 80, upkeep: 6, free: house.credits, runway: Math.floor(house.credits / 86) });
+
+    for (const building of world.buildings) building.enabled = false;
+    world.port.berthLevel = 1;
+    world.port.speedLevel = 1;
+    world.development = { path: "transit", level: 2, suspended: false, invested: 0, project: null, upkeepPaid: true };
+    const outlook = treasuryOutlook(state, house.id);
+    expect(outlook).toEqual({ wages: 0, upkeep: 17, free: house.credits, runway: Math.floor(house.credits / 17) });
+    expect(treasuryWarning(state, house.id)).toContain("содержание 17");
   });
 });
