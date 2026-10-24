@@ -468,7 +468,13 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       world.imported[sellerHouse][action.good] += deliveredQty;
       countDelivery(state, sellerHouse, world, action.good, deliveredQty);
     }
-    if (qty < wanted && affordable <= qty && !(action.mode === "buy" && room <= qty)) {
+    if (sale && sale.blocked === "price" && qty < wanted) {
+      ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
+      hold = true;
+    } else if (sale && sale.blocked === "money" && qty < wanted) {
+      ship.stopReason = "у покупателя нет денег";
+      hold = true;
+    } else if (qty < wanted && affordable <= qty && !(action.mode === "buy" && room <= qty)) {
       ship.stopReason = "у покупателя нет денег";
       hold = true;
     } else if (action.mode === "sell" && qty < wanted && room <= qty) {

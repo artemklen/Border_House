@@ -56,11 +56,9 @@ export function planSale(
       marketBudget -= 1;
       continue;
     }
-    break;
+    return { qty: marketUnits + contractUnits, marketUnits, contractUnits, takes, blocked: spotPrice < floorPrice ? "price" : "money" };
   }
-  const qty = marketUnits + contractUnits;
-  const blocked = qty > 0 ? "none" : spotPrice < floorPrice ? "price" : "money";
-  return { qty, marketUnits, contractUnits, takes, blocked };
+  return { qty: marketUnits + contractUnits, marketUnits, contractUnits, takes, blocked: "none" };
 }
 
 export function payContractTakes(state: SimState, good: GoodId, takes: Array<{ contractId: string; units: number }>): number {
@@ -217,6 +215,7 @@ export function judgeContract(state: SimState, contract: Contract): { accept: bo
   const seller = houseOf(state, contract.sellerId);
   const world = worldOf(state, contract.worldId);
   if (!buyer || !seller || !world || world.ownerId !== buyer.id) return { accept: false, reason: "мир назначения больше не принадлежит покупателю" };
+  if (seller.embargo[buyer.id] || buyer.embargo[seller.id]) return { accept: false, reason: "эмбарго закрывает коммерческий контракт" };
   const need = contract.qtyPerWindow * contract.price;
   if (availableCredits(buyer) < need) return { accept: false, reason: `нет свободных денег на резерв окна: нужно ${need}, доступно ${availableCredits(buyer)}` };
   if (contract.deposit < 1 || seller.reserved < contract.deposit) return { accept: false, reason: "залог продавца не удержан" };
@@ -283,7 +282,7 @@ export function contractEstimate(
 
 export function contractRisks(state: SimState, contract: Contract): string[] {
   const risks: string[] = [];
-  const sellerRoutes = state.routes.some((route) => route.houseId === contract.sellerId && !route.paused && route.stops.some((stop) => stop.worldId === contract.worldId && stop.actions.some((action) => action.mode === "sell" && action.good === contract.good)));
+  const sellerRoutes = state.routes.some((route) => route.houseId === contract.sellerId && !route.paused && state.ships.some((ship) => ship.routeId === route.id && ship.houseId === contract.sellerId && ship.status !== "building") && route.stops.some((stop) => stop.worldId === contract.worldId && stop.actions.some((action) => action.mode === "sell" && action.good === contract.good)));
   if (contract.status === "active" && !sellerRoutes) risks.push("нет действующего маршрута продажи этого товара в мир контракта");
   const left = contract.qtyPerWindow - contract.delivered;
   if (contract.status === "active" && contract.buyerReserve < left * contract.price) risks.push("резерв окна не покрывает оставшийся объём");

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planAi } from "../src/sim/ai";
+import { contractRisks } from "../src/sim/contracts";
 import { dispatch } from "../src/sim/commands";
 import { createSkeleton, endowHouse, endowWorld, placeShip } from "../src/sim/create";
 import { audit, hashState, sinkCredits } from "../src/sim/mutate";
@@ -382,6 +383,51 @@ describe("коммерческие контракты", () => {
     const duplicate = JSON.parse(serialize(state)) as { state: { contracts: Array<{ id: string }> } };
     duplicate.state.contracts.push({ ...duplicate.state.contracts[0] });
     expect(() => deserialize(JSON.stringify(duplicate))).toThrow(/контракт повреждён/);
+  });
+
+  it("частичная контрактная продажа ждёт цену, эмбарго и пустой маршрут видны", () => {
+    const held = bench();
+    held.state.rules.basePrice.food = 5;
+    propose(held.state, held.sellerId, held.buyerId, held.buyerWorld, 4, 8, 2, 0, 20);
+    dispatch(held.state, { type: "respondContract", houseId: held.buyerId, contractId: held.state.contracts[0].id, accept: true });
+    const ship = held.state.ships[0];
+    ship.worldId = held.buyerWorld;
+    ship.cargo.food = 8;
+    ship.supplyFrom.food = { [held.sellerId]: 8 };
+    held.state.accounts.goodsCreated.food += 8;
+    dispatch(held.state, {
+      type: "createRoute", houseId: held.sellerId, name: "Остаток", shipId: ship.id,
+      stops: [
+        { worldId: held.buyerWorld, actions: [{ good: "food", mode: "sell", amount: 8, price: 8, keep: 0 }] },
+        { worldId: held.sellerWorld, actions: [] },
+      ],
+    });
+    held.state.worlds[1].prices.food = 5;
+    runTicks(held.state, 1);
+    expect(held.state.contracts[0].delivered).toBe(4);
+    expect(ship.status).toBe("docked");
+    expect(ship.stopReason).toContain("ниже предела");
+    mustAudit(held.state);
+
+    const blocked = bench();
+    propose(blocked.state, blocked.sellerId, blocked.buyerId, blocked.buyerWorld, 4, 8, 2, 0, 20);
+    dispatch(blocked.state, { type: "setEmbargo", houseId: blocked.buyerId, otherId: blocked.sellerId, embargo: true });
+    const refused = dispatch(blocked.state, { type: "respondContract", houseId: blocked.buyerId, contractId: blocked.state.contracts[0].id, accept: true });
+    expect(refused.ok).toBe(false);
+    expect(blocked.state.contracts[0].status).toBe("proposed");
+    expect(blocked.state.houses[1].reserved).toBe(0);
+
+    const quiet = bench();
+    propose(quiet.state, quiet.sellerId, quiet.buyerId, quiet.buyerWorld, 4, 8, 2, 0, 20);
+    dispatch(quiet.state, { type: "respondContract", houseId: quiet.buyerId, contractId: quiet.state.contracts[0].id, accept: true });
+    dispatch(quiet.state, {
+      type: "createRoute", houseId: quiet.sellerId, name: "Без корабля",
+      stops: [
+        { worldId: quiet.sellerWorld, actions: [{ good: "food", mode: "load", amount: 4, price: 0, keep: 0 }] },
+        { worldId: quiet.buyerWorld, actions: [{ good: "food", mode: "sell", amount: 4, price: 0, keep: 0 }] },
+      ],
+    });
+    expect(contractRisks(quiet.state, quiet.state.contracts[0]).join(" ")).toContain("нет действующего маршрута");
   });
 
   it("четвёртый контракт пары отклоняется, дипломатический договор не занимает это место", () => {
