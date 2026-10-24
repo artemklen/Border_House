@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { releaseClaimedSpace, routeTimeHotkey, type HotkeyInput } from "../src/ui/hotkeys";
+import { nextSpaceClaim, releaseClaimedSpace, routeTimeHotkey, type HotkeyInput } from "../src/ui/hotkeys";
 
 function press(patch: Partial<HotkeyInput>): HotkeyInput {
   return {
@@ -33,6 +33,18 @@ describe("хоткеи времени", () => {
     expect(releaseClaimedSpace("Space", true)).toEqual({ preventDefault: true, claimed: false });
     expect(releaseClaimedSpace("Space", false)).toEqual({ preventDefault: false, claimed: false });
     expect(releaseClaimedSpace("Enter", true)).toEqual({ preventDefault: false, claimed: true });
+  });
+
+  it("потеря фокуса окна забывает зажатый пробел и не гасит следующее нажатие кнопки", () => {
+    const down = routeTimeHotkey(press({ focusFrom: "pointer", target: "plain" }));
+    let claimed = nextSpaceClaim(false, "keydown", "Space", down.preventDefault);
+    expect(claimed).toBe(true);
+    claimed = nextSpaceClaim(claimed, "blur", "Space", false);
+    expect(claimed).toBe(false);
+    const native = routeTimeHotkey(press({ focusFrom: "keyboard", target: "activatable" }));
+    claimed = nextSpaceClaim(claimed, "keydown", "Space", native.preventDefault);
+    expect(native).toEqual({ action: "none", preventDefault: false });
+    expect(releaseClaimedSpace("Space", claimed).preventDefault).toBe(false);
   });
 
   it("пробел по кнопке, выбранной с клавиатуры, остаётся нажатием кнопки", () => {

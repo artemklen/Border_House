@@ -14,7 +14,7 @@ import { PATH_LABEL, developmentBlock, developmentText, levelCost, transitThroug
 import type { DevelopmentPath, SituationChoice } from "../sim/types";
 import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
-import { classifyHotkeyTarget, releaseClaimedSpace, routeTimeHotkey, type FocusFrom } from "./hotkeys";
+import { classifyHotkeyTarget, nextSpaceClaim, releaseClaimedSpace, routeTimeHotkey, type FocusFrom } from "./hotkeys";
 import { lessonViews } from "../sim/tutorial";
 import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
 import {
@@ -166,7 +166,7 @@ export function App() {
         dialogOpen: Boolean(document.querySelector("dialog[open]")),
       });
       if (route.preventDefault) event.preventDefault();
-      if (event.code === "Space" && route.preventDefault) spaceClaimed.current = true;
+      spaceClaimed.current = nextSpaceClaim(spaceClaimed.current, "keydown", event.code, route.preventDefault);
       if (route.action === "toggle-pause") togglePause();
       if (route.action === "speed-1") changeSpeed(1);
       if (route.action === "speed-2") changeSpeed(2);
@@ -174,16 +174,21 @@ export function App() {
     };
     const onKeyUp = (event: KeyboardEvent) => {
       const release = releaseClaimedSpace(event.code, spaceClaimed.current);
-      spaceClaimed.current = release.claimed;
+      spaceClaimed.current = nextSpaceClaim(spaceClaimed.current, "keyup", event.code, false);
       if (release.preventDefault) event.preventDefault();
+    };
+    const onBlur = () => {
+      spaceClaimed.current = nextSpaceClaim(spaceClaimed.current, "blur", "", false);
     };
     window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown, true);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
     };
   }, []);
 

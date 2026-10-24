@@ -41,6 +41,14 @@ export function releaseClaimedSpace(code: string, claimed: boolean): { preventDe
   return { preventDefault: false, claimed };
 }
 
+/** Захват пробела живёт только пока клавиша удерживается в этом окне. */
+export function nextSpaceClaim(claimed: boolean, event: "keydown" | "keyup" | "blur", code: string, preventDefault: boolean): boolean {
+  if (event === "blur") return false;
+  if (event === "keyup") return releaseClaimedSpace(code, claimed).claimed;
+  if (code === "Space" && preventDefault) return true;
+  return claimed;
+}
+
 export function classifyHotkeyTarget(target: EventTarget | null): HotkeyTarget {
   if (!target || typeof target !== "object" || !("closest" in target) || typeof target.closest !== "function") return "plain";
   const element = target as HTMLElement;
