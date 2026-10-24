@@ -245,6 +245,17 @@ describe("подсказка первого рейса", () => {
     expect(industry).not.toContain("печёт");
     expect(industry).not.toContain("коротким запасом");
   });
+
+  it("не говорит, что остановленная мельница печёт", () => {
+    const state = createBorderContractScenario();
+    const home = state.worlds.find((world) => world.name === "Усадьба")!;
+    const mill = home.buildings.find((building) => building.kind === "mill")!;
+    expect(hintLines(state).join(" ")).toContain("«Усадьба» уже печёт продовольствие");
+    mill.enabled = false;
+    const hint = hintLines(state).join(" ");
+    expect(hint).toContain("«Усадьба» держит продовольствие");
+    expect(hint).not.toContain("печёт");
+  });
 });
 
 function quotedNames(text: string): string[] {

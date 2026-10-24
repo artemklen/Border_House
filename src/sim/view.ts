@@ -200,7 +200,7 @@ function firstVoyageHint(state: SimState, player: House): string {
 
 function bakesFood(world: World): boolean {
   return world.buildings.some((building) => {
-    if (building.remainingDays > 0) return false;
+    if (building.remainingDays > 0 || !building.enabled) return false;
     const recipe = RECIPES[building.kind];
     if ((recipe.outputs.food ?? 0) <= 0) return false;
     return GOODS.every((good) => world.stock[good] >= (recipe.inputs[good] ?? 0));
