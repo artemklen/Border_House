@@ -23,10 +23,10 @@ describe("казна базовой партии", () => {
     const state = createGame({ seed: 21, scenario: "base" });
     const player = state.houses.find((house) => house.player)!;
     expect(player.credits).toBe(18000);
-    expect(treasuryOutlook(state, player.id)).toEqual({ wages: 500, upkeep: 45, free: 18000, runway: 33 });
+    expect(treasuryOutlook(state, player.id)).toEqual({ wages: 465, upkeep: 45, free: 18000, runway: 35 });
     const warning = treasuryWarning(state, player.id)!;
-    expect(warning).toContain("зарплаты 500");
-    expect(warning).toContain("примерно на 33 дн");
+    expect(warning).toContain("зарплаты 465");
+    expect(warning).toContain("примерно на 35 дн");
     expect(warning).toContain("«Касса»");
     expect(hintLines(state)[0]).toBe(warning);
     const marks: Record<number, number> = {};
@@ -94,5 +94,25 @@ describe("казна базовой партии", () => {
     const outlook = treasuryOutlook(state, house.id);
     expect(outlook).toEqual({ wages: 0, upkeep: 17, free: house.credits, runway: Math.floor(house.credits / 17) });
     expect(treasuryWarning(state, house.id)).toContain("содержание 17");
+  });
+
+  it("включённые на паузе предприятия оцениваются сменой следующего дня", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    const player = state.houses.find((house) => house.player)!;
+    tick(state);
+    const buildings = state.worlds.flatMap((world) => world.buildings).filter((building) => building.ownerId === player.id && building.remainingDays <= 0);
+    for (const building of buildings) expect(dispatch(state, { type: "toggleBuilding", houseId: player.id, buildingId: building.id, enabled: false }).ok).toBe(true);
+    tick(state);
+    for (const building of buildings) expect(dispatch(state, { type: "toggleBuilding", houseId: player.id, buildingId: building.id, enabled: true }).ok).toBe(true);
+    expect(buildings.every((building) => building.workers === 0)).toBe(true);
+    const outlook = treasuryOutlook(state, player.id);
+    expect(outlook?.wages).toBe(465);
+    expect(outlook && outlook.runway <= 60).toBe(true);
+    const beforeFlow = { ...player.flow };
+    const beforeDays = player.flowDays;
+    tick(state);
+    const reset = player.flowDays === 0 && beforeDays !== 0;
+    const flow = dayFlow(beforeFlow, player.flow, player.lastFlow, reset);
+    expect(flow.wages).toBe(outlook?.wages);
   });
 });
