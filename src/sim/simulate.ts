@@ -448,11 +448,13 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     buyer.flow.purchases += qty * price;
     seller.flow.sales += qty * price;
     rememberTrade(buyer, seller, qty * price);
-    if (!world.imported[sellerHouse]) world.imported[sellerHouse] = emptyGoods();
-    world.imported[sellerHouse][action.good] += qty;
     if (action.mode === "sell") route.revenue += qty * price;
     else route.cost += qty * price;
-    if (deliveredQty > 0) countDelivery(state, sellerHouse, world, action.good, deliveredQty);
+    if (deliveredQty > 0) {
+      if (!world.imported[sellerHouse]) world.imported[sellerHouse] = emptyGoods();
+      world.imported[sellerHouse][action.good] += deliveredQty;
+      countDelivery(state, sellerHouse, world, action.good, deliveredQty);
+    }
     if (qty < wanted && affordable <= qty && !(action.mode === "buy" && room <= qty)) {
       ship.stopReason = "у покупателя нет денег";
       hold = true;

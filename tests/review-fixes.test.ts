@@ -2051,4 +2051,53 @@ describe("замечания ревью", () => {
     fractional.state.worlds[0].stock.food = 1.5;
     expect(() => deserialize(JSON.stringify(fractional))).toThrow(SaveError);
   });
+
+  it("дробная цена не подменяет партию", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    const raw = JSON.parse(serialize(state)) as { state: { worlds: Array<{ prices: { food: number } }> } };
+    raw.state.worlds[0].prices.food = 12.1;
+    expect(() => deserialize(JSON.stringify(raw))).toThrow(SaveError);
+  });
+
+  it("перепродажа в том же порту не создаёт зависимость", () => {
+    const state = createGame({ seed: 3, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const ship = state.ships.find((item) => item.houseId === player.id && item.classId === "freighter")!;
+    const market = state.worlds.find((world) => world.id === "w-vega")!;
+    for (const world of state.worlds) {
+      world.population = 0;
+      for (const building of world.buildings) building.enabled = false;
+    }
+    ship.worldId = "w-vega";
+    ship.fromId = "w-vega";
+    ship.tollWorldId = "w-vega";
+    ship.status = "docked";
+    ship.cargo.fuel = 40;
+    market.stock.food = 80;
+    market.prices.food = 10;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Туда и обратно",
+      shipId: ship.id,
+      stops: [
+        {
+          worldId: "w-vega",
+          actions: [
+            { good: "food", mode: "buy", amount: 10, price: 20, keep: 0 },
+            { good: "food", mode: "sell", amount: 10, price: 1, keep: 0 },
+          ],
+        },
+        { worldId: "w-bread", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(market.imported[player.id]?.food ?? 0).toBe(0);
+    runTicks(state, state.rules.window);
+    const rows = dependencyRows(state, vega);
+    const playerRow = rows.find((line) => line.startsWith(player.name))!;
+    expect(playerRow).toContain("0 ед.");
+  });
 });

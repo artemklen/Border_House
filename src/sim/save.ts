@@ -55,6 +55,14 @@ function requireGoods(value: unknown, label: string): void {
   if (GOODS.some((good) => typeof pile[good] !== "number")) throw new SaveError(`Файл сохранения повреждён: поле «${label}» неполное.`);
 }
 
+function requirePrices(value: unknown, label: string): void {
+  requireGoods(value, label);
+  const pile = value as Record<string, number>;
+  if (GOODS.some((good) => !Number.isInteger(pile[good]) || pile[good] < 1)) {
+    throw new SaveError(`Файл сохранения повреждён: поле «${label}» неполное.`);
+  }
+}
+
 function assertPlayable(state: SimState): void {
   if (state.version !== 1) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   if (typeof state.seed !== "number" || !Number.isFinite(state.seed)) throw new SaveError("Файл сохранения повреждён: нет зерна генератора.");
@@ -80,7 +88,7 @@ function assertPlayable(state: SimState): void {
     && rules.deathCertainAge >= rules.deathStartAge;
   if (!ruleOk) throw new SaveError("Файл сохранения повреждён: нет правил.");
   if (!Number.isInteger(state.nextSerial) || state.nextSerial < 0) throw new SaveError("Файл сохранения повреждён: нет счётчика.");
-  requireGoods(state.rules.basePrice, "базовые цены");
+  requirePrices(state.rules.basePrice, "базовые цены");
   if (!state.accounts || typeof state.accounts.creditsCreated !== "number" || typeof state.accounts.creditsDestroyed !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет счетов.");
   }
@@ -115,7 +123,7 @@ function assertPlayable(state: SimState): void {
       throw new SaveError("Файл сохранения повреждён: мир без склада.");
     }
     if (GOODS.some((good) => !Number.isInteger(world.stock[good]) || world.stock[good] < 0)) throw new SaveError("Файл сохранения повреждён: склад мира неполный.");
-    requireGoods(world.prices, "цены");
+    requirePrices(world.prices, "цены");
     requireGoods(world.demand, "спрос");
     requireGoods(world.deposits, "месторождения");
     requireGoods(world.produced, "производство");
