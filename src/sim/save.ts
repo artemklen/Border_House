@@ -219,7 +219,7 @@ function assertPlayable(state: SimState): void {
     }
     if (!(GOODS as readonly string[]).includes(contract.good)) throw new SaveError("Файл сохранения повреждён: у контракта нет товара.");
     const fields = [contract.qtyPerWindow, contract.windows, contract.price, contract.shortfall, contract.deposit, contract.buyerReserve, contract.delivered, contract.paidWindow, contract.windowIndex, contract.windowDays];
-    if (fields.some((value) => !Number.isInteger(value) || value < 0) || contract.windows > 6 || contract.shortfall > contract.qtyPerWindow) {
+    if (fields.some((value) => !Number.isInteger(value) || value < 0) || contract.windows > 6 || contract.shortfall > contract.qtyPerWindow || !requireInt(contract.price, 1, 10000)) {
       throw new SaveError("Файл сохранения повреждён: числа контракта повреждены.");
     }
     if (!Array.isArray(contract.history) || !Array.isArray(contract.trades)) throw new SaveError("Файл сохранения повреждён: у контракта нет истории.");
@@ -238,9 +238,9 @@ function assertPlayable(state: SimState): void {
       reservedByHouse.set(contract.buyerId, (reservedByHouse.get(contract.buyerId) ?? 0) + contract.buyerReserve);
     }
   }
-  for (const [houseId, reserved] of reservedByHouse) {
-    const house = state.houses.find((item) => item.id === houseId);
-    if (house && house.reserved < reserved) throw new SaveError("Файл сохранения повреждён: резерв казны меньше обязательств.");
+  for (const house of state.houses) {
+    const reserved = reservedByHouse.get(house.id) ?? 0;
+    if (house.reserved !== reserved) throw new SaveError("Файл сохранения повреждён: резерв казны не сходится с контрактами.");
   }
   for (const entry of [...state.journal, ...state.aiLog]) {
     if (!entry || typeof entry.tick !== "number" || typeof entry.text !== "string") {

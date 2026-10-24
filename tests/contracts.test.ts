@@ -356,6 +356,12 @@ describe("коммерческие контракты", () => {
     const trades = JSON.parse(serialize(state)) as { state: { contracts: Array<{ trades: unknown }> } };
     trades.state.contracts[0].trades = [null];
     expect(() => deserialize(JSON.stringify(trades))).toThrow(/приёмка/);
+    const free = JSON.parse(serialize(state)) as { state: { contracts: Array<{ price: number }> } };
+    free.state.contracts[0].price = 0;
+    expect(() => deserialize(JSON.stringify(free))).toThrow(/числа контракта/);
+    const locked = JSON.parse(serialize(state)) as { state: { contracts: unknown } };
+    locked.state.contracts = [];
+    expect(() => deserialize(JSON.stringify(locked))).toThrow(/резерв казны/);
   });
 
   it("четвёртый контракт пары отклоняется, дипломатический договор не занимает это место", () => {

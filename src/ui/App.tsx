@@ -813,9 +813,14 @@ function DealPanel(props: {
           ) : null}
         </article>
       ))}
-      {props.sim.contracts.map((contract) => (
+      {props.sim.contracts.map((contract) => {
+        const seller = props.sim.houses.find((item) => item.id === contract.sellerId);
+        const buyer = props.sim.houses.find((item) => item.id === contract.buyerId);
+        const destination = props.sim.worlds.find((item) => item.id === contract.worldId);
+        return (
         <article key={contract.id} className="card">
           <h3>Контракт {{ proposed: "предложен", active: "идёт", completed: "завершён", broken: "сорван", cancelled: "отменён", rejected: "отклонён" }[contract.status]}</h3>
+          <p>{seller?.name ?? "продавец"} поставляет {buyer?.name ?? "покупателю"} {GOOD_NAME[contract.good]} в «{destination?.name ?? "мир"}». Цена {contract.price}, объём {contract.qtyPerWindow} за окно, допустимый недовоз {contract.shortfall}, срок {contract.windows} окон.</p>
           <p>{contract.note}</p>
           <p>Окно {contract.windowIndex + 1} / {contract.windows}, день {contract.windowDays} / {props.sim.rules.window}. Принято {contract.delivered} / {contract.qtyPerWindow} по {contract.price} кред. Резерв покупателя {contract.buyerReserve}, залог {contract.deposit}.</p>
           <p>{contractRisks(props.sim, contract).join(" ")}</p>
@@ -831,7 +836,8 @@ function DealPanel(props: {
             <button onClick={() => props.onCommand({ type: "cancelContract", houseId: house.id, contractId: contract.id })}>Отменить контракт</button>
           ) : null}
         </article>
-      ))}
+        );
+      })}
     </>
   );
 }
