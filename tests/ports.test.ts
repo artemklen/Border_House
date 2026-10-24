@@ -673,4 +673,40 @@ describe("порт", () => {
     runTicks(state, 1);
     expect(ship.status).toBe("transit");
   });
+
+  it("правка маршрута обнуляет ожидание корабля в очереди", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    destroyGoods(ore.stock, state.accounts, "ore", ore.stock.ore);
+    const first = state.ships[0];
+    const second = placeShip(state, house.id, ore, "freighter", 40);
+    for (const ship of [first, second]) {
+      ship.status = "docked";
+      ship.worldId = ore.id;
+    }
+    const created = dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Правка срока",
+      shipId: first.id,
+      minLoad: 20,
+      maxWait: 5,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 20, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    expect(created.ok).toBe(true);
+    dispatch(state, { type: "assignShip", shipId: second.id, routeId: first.routeId });
+    runTicks(state, 2);
+    const route = state.routes.find((item) => item.name === "Правка срока")!;
+    const queued = ore.port.queue.map((id) => state.ships.find((ship) => ship.id === id)).find((ship) => ship);
+    expect(queued?.loadWait ?? 0).toBeGreaterThan(0);
+    dispatch(state, { type: "updateRoute", routeId: route.id, name: route.name, stops: route.stops, minLoad: 20, maxWait: 3 });
+    expect(queued?.loadWait).toBe(0);
+    runTicks(state, 2);
+    expect(first.status).toBe("docked");
+    expect(second.status).toBe("docked");
+  });
 });

@@ -1724,6 +1724,20 @@ describe("замечания ревью", () => {
     }
   });
 
+  it("заправка набирает бак на круг еды и дорогу обратно", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    runTicks(state, 90);
+    const vega = state.houses.find((house) => house.name === "Дом Вега")!;
+    const food = state.routes.find((route) => route.houseId === vega.id && route.autoFuel && !route.returnRouteId);
+    expect(food?.paused).toBe(false);
+    const ship = state.ships.find((item) => item.houseId === vega.id && item.classId === "freighter")!;
+    const refuel = state.routes.find((route) => route.id === ship.routeId && route.returnRouteId);
+    if (refuel && ship.worldId === "w-fuel") {
+      const order = refuel.stops.flatMap((stop) => stop.actions).find((action) => action.good === "fuel");
+      expect(order?.amount ?? 0).toBeGreaterThanOrEqual(35);
+    }
+  });
+
   it("договор без пошлины не подменяет партию", () => {
     const state = createGame({ seed: 3, scenario: "base" });
     const player = state.houses.find((house) => house.player)!;

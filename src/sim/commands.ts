@@ -227,6 +227,7 @@ function updateRoute(state: SimState, routeId: string, name: string, stops: Rout
     if (ship.routeId !== route.id) continue;
     ship.visitKey = "";
     ship.visitMoved = [];
+    ship.loadWait = 0;
     if (ship.status === "transit") ship.stopIndex = 0;
     else if (ship.worldId) {
       const index = route.stops.findIndex((stop) => stop.worldId === ship.worldId);

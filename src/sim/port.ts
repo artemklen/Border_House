@@ -171,6 +171,7 @@ export function advanceLoadWaits(state: SimState): void {
     if (ship.visitKey !== key || !Array.isArray(ship.visitMoved)) {
       ship.visitKey = key;
       ship.visitMoved = [];
+      ship.loadWait = 0;
     }
     ship.loadWait += 1;
   }

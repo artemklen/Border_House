@@ -306,6 +306,10 @@ function serviceDock(state: SimState, ship: Ship): void {
       }
       return;
     }
+    if (fueled && home && !foodVoyageCovered(state, ship, home)) {
+      block(ship, "нет топлива на обратный рейс за едой");
+      return;
+    }
   }
   if (routeNow && foodRouteNeedsFuel(state, ship, routeNow)) {
     block(ship, "нет топлива на следующий перегон");
