@@ -22,14 +22,20 @@ export function planAi(state: SimState): void {
     answerProposals(state, house);
     answerContracts(state, house);
     const portPlan = portIdea(state, house.id);
-    const developmentPlan = developmentIdea(state, house.id);
-    const plans = [...(portPlan ? [portPlan] : []), ...ideas(state, house), ...(developmentPlan ? [developmentPlan] : [])];
+    const plans = [...(portPlan ? [portPlan] : []), ...ideas(state, house)];
     let applied = 0;
     for (const plan of plans) {
       if (applied >= 2) break;
       const result = dispatch(state, plan.command);
       noteAi(state, house.id, result.ok ? plan.because : `${house.name} не смог: ${result.reason}`);
       if (result.ok) applied += 1;
+    }
+    if (applied < 2) {
+      const developmentPlan = developmentIdea(state, house.id);
+      if (developmentPlan) {
+        const result = dispatch(state, developmentPlan.command);
+        noteAi(state, house.id, result.ok ? developmentPlan.because : `${house.name} не смог: ${result.reason}`);
+      }
     }
   }
 }

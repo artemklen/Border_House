@@ -3,7 +3,7 @@ import { planAi } from "../src/sim/ai";
 import { dispatch } from "../src/sim/commands";
 import { SHIP_CLASSES } from "../src/sim/config";
 import { createSkeleton, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
-import { createGrainScenario, createLogisticsScenario } from "../src/sim/diagnostics";
+import { createExpansionScenario, createGrainScenario, createLogisticsScenario } from "../src/sim/diagnostics";
 import { audit, createGoods, destroyGoods, distance, hashState } from "../src/sim/mutate";
 import { explainBuilding } from "../src/sim/view";
 import { effectiveThroughput } from "../src/sim/port";
@@ -382,5 +382,19 @@ describe("развитие миров", () => {
     const intact = deserialize(serialize(state));
     expect(intact.worlds[0].development.path).toBe(null);
     expect(intact.worlds[0].development.level).toBe(0);
+  });
+
+  it("развитие не забирает комплектующие уже назначенной колонии", () => {
+    const state = createExpansionScenario();
+    const home = state.worlds.find((world) => world.id === "e-home")!;
+    const ai = state.houses.find((house) => house.profile === "expansionist")!;
+    destroyGoods(home.stock, state.accounts, "parts", home.stock.parts - state.rules.colonizeParts);
+    planAi(state);
+    expect(state.ships.some((ship) => ship.mission?.type === "colonize")).toBe(true);
+    expect(home.stock.parts).toBe(state.rules.colonizeParts);
+    expect(home.development.project).toBeNull();
+    runTicks(state, 40);
+    expect(state.worlds.find((world) => world.id === "e-free")?.ownerId).toBe(ai.id);
+    expect(audit(state).ok).toBe(true);
   });
 });

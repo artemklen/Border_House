@@ -124,8 +124,15 @@ export function developmentBlock(state: SimState, houseId: string, worldId: stri
   const ready = pathReady(state, world, path);
   if (ready) return ready;
   const price = levelCost(path, target);
-  if (world.stock.parts < price.parts) return `нужно ${price.parts} комплектующих на складе, есть ${world.stock.parts}`;
-  if (availableCredits(house) < price.cost) return `нужно ${price.cost} свободных кредитов`;
+  const partsHeld = colonyPartsHeld(state, world.id);
+  const partsFree = world.stock.parts - partsHeld;
+  if (partsFree < price.parts) {
+    return partsHeld > 0
+      ? `нужно ${price.parts} комплектующих сверх ${partsHeld} для колонии, свободно ${Math.max(0, partsFree)}`
+      : `нужно ${price.parts} комплектующих на складе, есть ${world.stock.parts}`;
+  }
+  const creditsHeld = colonyCreditsHeld(state, house.id);
+  if (availableCredits(house) - creditsHeld < price.cost) return `нужно ${price.cost} свободных кредитов`;
   return null;
 }
 
@@ -275,6 +282,24 @@ function pathReady(state: SimState, world: World, path: DevelopmentPath): string
     return "транзитному пути нужен действующий маршрут дома через этот мир";
   }
   return null;
+}
+
+function colonyPartsHeld(state: SimState, worldId: string): number {
+  let held = 0;
+  for (const ship of state.ships) {
+    if (ship.mission?.type !== "colonize" || ship.worldId !== worldId) continue;
+    held += Math.max(0, state.rules.colonizeParts - ship.cargo.parts);
+  }
+  return held;
+}
+
+function colonyCreditsHeld(state: SimState, houseId: string): number {
+  let held = 0;
+  for (const ship of state.ships) {
+    if (ship.houseId !== houseId || ship.mission?.type !== "colonize") continue;
+    held += state.rules.colonizeCost;
+  }
+  return held;
 }
 
 function pathScores(state: SimState, houseId: string, world: World): Record<DevelopmentPath, number> {
