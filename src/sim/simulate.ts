@@ -439,7 +439,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
           : noRoom
             ? action.good === "fuel" ? "в баке нет места для топлива" : "нет места под груз"
             : `нечего грузить: ${goodLabel(action.good)}`;
-        if (capped.limited || noRoom) hold = true;
+        if (capped.limited) hold = true;
       }
       else {
         moveGoods(world.stock, ship.cargo, action.good, qty);
