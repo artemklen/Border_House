@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { foodReturnFuel, planAi } from "../src/sim/ai";
+import { foodReturnFuel, planAi, refreshFoodFuel } from "../src/sim/ai";
 import { dispatch } from "../src/sim/commands";
 import { SHIP_CLASSES } from "../src/sim/config";
 import { createSkeleton, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
@@ -429,7 +429,10 @@ describe("развитие миров", () => {
         { worldId: dest.id, actions: [{ good: "food", mode: "unload", amount: 10, price: 0, keep: 0 }] },
       ],
     });
-    expect(foodReturnFuel(state, ship, state.routes[0], origin)).toBe(4);
+    const route = state.routes[0];
+    expect(foodReturnFuel(state, ship, route, origin)).toBe(4);
+    refreshFoodFuel(state, ship, origin, route);
+    expect(route.stops[0].actions.find((action) => action.good === "fuel")?.amount).toBe(4);
   });
 
   it("ИИ не закладывает один путь на двух мирах, пока первая стройка идёт", () => {

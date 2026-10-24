@@ -322,18 +322,34 @@ export function App() {
                     onDevelop={(path) => {
                       const world = selectedWorld ?? sim.worlds[0];
                       const blocked = developmentBlock(sim, player.id, world.id, path);
+                      if (blocked) {
+                        setMessage(blocked);
+                        return;
+                      }
                       const dev = world.development;
                       const target = dev?.path === path && dev.level === 1 ? 2 : 1;
                       const price = levelCost(path, target as 1 | 2);
                       const switching = Boolean(dev?.path && dev.path !== path);
+                      const worldId = world.id;
                       setConfirm({
                         title: `${world.name}: ${PATH_LABEL[path]} путь, уровень ${target}`,
                         lines: [
-                          blocked ?? `${price.cost} кред. уйдут населению, ${price.parts} комплектующих спишутся, срок ${price.days} дн.`,
+                          `${price.cost} кред. уйдут населению, ${price.parts} комплектующих спишутся, срок ${price.days} дн.`,
                           switching ? `Сейчас действует другой путь. На время стройки его бонус погаснет, вложенные ${dev?.invested ?? 0} кред. не вернутся.` : "Пока стройка не закончена, бонус этого уровня не действует.",
                           "Склад не вырастет. Смена туда-обратно и отмена не возвращают комплектующие и не выдают повторный бонус.",
                         ],
-                        run: () => act({ type: "developWorld", houseId: player.id, worldId: world.id, path }),
+                        run: () => {
+                          const current = simRef.current;
+                          const live = current?.worlds.find((item) => item.id === worldId);
+                          const liveTarget = live?.development?.path === path && live.development.level === 1 ? 2 : 1;
+                          const stillBlocked = current ? developmentBlock(current, player.id, worldId, path) : "нет партии";
+                          if (!live || liveTarget !== target || stillBlocked) {
+                            setMessage(stillBlocked && liveTarget === target ? stillBlocked : `Условия изменились: подтверждён уровень ${target}, сейчас доступен уровень ${liveTarget}. Откройте приказ заново.`);
+                            setConfirm(null);
+                            return;
+                          }
+                          act({ type: "developWorld", houseId: player.id, worldId, path });
+                        },
                       });
                     }}
                     onCancelDevelopment={() => {

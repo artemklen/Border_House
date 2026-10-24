@@ -295,7 +295,7 @@ function foodStops(house: House, ship: Ship, source: World, dest: World): RouteS
   const inbound = dest.ownerId === house.id
     ? { good: "food" as const, mode: "unload" as const, amount: 40, price: 0, keep: 0 }
     : { good: "food" as const, mode: "sell" as const, amount: 36, price: 1, keep: 0 };
-  const voyage = fuelForLeg(ship, source, dest) + fuelForLeg(ship, dest, source);
+  const voyage = foodRoundTrip(ship, source, dest);
   const free = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
   const amount = Math.max(0, Math.min(voyage - ship.cargo.fuel, free));
   const actions: RouteStop["actions"] = [];
@@ -317,7 +317,7 @@ export function refreshFoodFuel(state: SimState, ship: Ship, world: World, route
   if (!here || !there || !isFuelPickup(here, route)) return;
   const dest = worldOf(state, there.worldId);
   if (!dest) return;
-  const voyage = fuelForLeg(ship, world, dest) + fuelForLeg(ship, dest, world);
+  const voyage = foodRoundTrip(ship, world, dest);
   const deficit = Math.max(0, voyage - ship.cargo.fuel);
   if (deficit > 0) {
     const food = here.actions.filter(isFoodTake);
@@ -366,7 +366,7 @@ export function foodRouteNeedsFuel(state: SimState, ship: Ship, route: Route): b
   const origin = worldOf(state, ship.worldId);
   const dest = worldOf(state, there.worldId);
   if (!origin || !dest) return false;
-  const voyage = fuelForLeg(ship, origin, dest) + rawLegFuel(ship, dest, origin);
+  const voyage = foodRoundTrip(ship, origin, dest);
   return ship.cargo.fuel < voyage;
 }
 
@@ -379,7 +379,7 @@ export function foodReturnFuel(state: SimState, ship: Ship, route: Route, from: 
   const origin = worldOf(state, pickup.worldId);
   const dest = worldOf(state, other.worldId);
   if (!origin || !dest) return 0;
-  const voyage = fuelForLeg(ship, origin, dest) + rawLegFuel(ship, dest, origin);
+  const voyage = foodRoundTrip(ship, origin, dest);
   const back = from.id !== origin.id ? fuelForLeg(ship, from, origin) : 0;
   return voyage + back;
 }
@@ -420,6 +420,10 @@ function foodSource(state: SimState, house: House, dest: World): World | undefin
     .filter((world) => world.id !== dest.id && world.stock.food > 50)
     .filter((world) => !world.ownerId || world.ownerId === house.id || houseOf(state, world.ownerId)?.embargo[house.id] !== true)
     .sort((a, b) => a.prices.food - b.prices.food || a.x - b.x)[0];
+}
+
+function foodRoundTrip(ship: Ship, origin: World, dest: World): number {
+  return fuelForLeg(ship, origin, dest) + rawLegFuel(ship, dest, origin);
 }
 
 function rawLegFuel(ship: Ship, from: World, to: World): number {
