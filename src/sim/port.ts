@@ -167,6 +167,11 @@ export function advanceLoadWaits(state: SimState): void {
     if (!here?.actions.some((action) => action.good !== "fuel" && (action.mode === "load" || action.mode === "buy"))) continue;
     const dry = ship.cargo.grain + ship.cargo.food + ship.cargo.ore + ship.cargo.alloys + ship.cargo.parts;
     if (dry >= route.minLoad) continue;
+    const key = `${world.id}:${ship.stopIndex}:${route.id}`;
+    if (ship.visitKey !== key || !Array.isArray(ship.visitMoved)) {
+      ship.visitKey = key;
+      ship.visitMoved = [];
+    }
     ship.loadWait += 1;
   }
 }
@@ -202,7 +207,6 @@ export function holdForLoad(ship: Ship, route: Route, capacity: number): "open" 
   ship.stopReason = conflict
     ? `частичный рейс: минимум ${route.minLoad} не влезает рядом с топливом, ожидание ${route.maxWait} дн. истекло.`
     : `частичный рейс: загрузка ${dry} из ${route.minLoad}, ожидание ${route.maxWait} дн. истекло.`;
-  ship.loadWait = 0;
   return "expired";
 }
 

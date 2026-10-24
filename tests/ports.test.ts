@@ -608,4 +608,69 @@ describe("порт", () => {
     expect(earlier.status).toBe("transit");
     expect(earlier.stopReason ?? "").toContain("частичный рейс");
   });
+
+  it("ожидание в очереди не обнуляется на первом причаливании", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    createGoods(ore.stock, state.accounts, "ore", 60);
+    const waiting = state.ships[0];
+    const barge = placeShip(state, house.id, ore, "barge", 40);
+    waiting.portArrived = 2;
+    barge.portArrived = 1;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Баржа",
+      shipId: barge.id,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 140, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [{ good: "ore", mode: "unload", amount: 140, price: 0, keep: 0 }] },
+      ],
+    });
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "За баржей",
+      shipId: waiting.id,
+      minLoad: 20,
+      maxWait: 1,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 20, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    runTicks(state, 2);
+    expect(waiting.status).toBe("docked");
+    expect(waiting.loadWait).toBeGreaterThanOrEqual(1);
+    runTicks(state, 1);
+    expect(waiting.status).toBe("transit");
+  });
+
+  it("истёкший срок не начинается заново, если отход не удался", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    destroyGoods(ore.stock, state.accounts, "ore", ore.stock.ore);
+    const ship = state.ships[0];
+    drainFuel(state, ship.id);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Без топлива",
+      shipId: ship.id,
+      minLoad: 20,
+      maxWait: 3,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 20, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    runTicks(state, 4);
+    expect(ship.status).toBe("blocked");
+    expect(ship.stopReason ?? "").toContain("нет топлива");
+    createGoods(ship.cargo, state.accounts, "fuel", 40);
+    runTicks(state, 1);
+    expect(ship.status).toBe("transit");
+  });
 });
