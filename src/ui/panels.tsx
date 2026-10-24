@@ -161,7 +161,7 @@ export function LearnStrip(props: { sim: SimState; onSkip: () => void; onResume:
   }
   const title = current?.title ?? "все шаги закрыты";
   return (
-    <details className="learn" open>
+    <details className="learn">
       <summary>Обучение {done}/7 · {title}</summary>
       {current ? (
         <div className="stack">
