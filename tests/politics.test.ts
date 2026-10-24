@@ -272,6 +272,29 @@ describe("политические решения", () => {
     expect(ai.embargo[player.id]).not.toBe(true);
     expect(covered.situations.find((item) => item.kind === "foodDependence")?.choice).toBe("yield");
 
+    const kept = aiFoodCase(true);
+    const fedHouse = kept.houses.find((house) => house.player)!;
+    const hungryAi = kept.houses.find((house) => house.name === "Голодный")!;
+    kept.treaties.push({
+      id: "t-kept",
+      kind: "supply",
+      proposerId: fedHouse.id,
+      targetId: hungryAi.id,
+      status: "active",
+      startTick: 0,
+      endTick: 48,
+      duration: 48,
+      tariffBps: 200,
+      good: "food",
+      qtyPerWindow: 10,
+      delivered: 0,
+      windowDays: 0,
+      note: "уже везут",
+    });
+    runTicks(kept, 1);
+    expect(kept.situations.find((item) => item.kind === "foodDependence")?.choice).toBe("yield");
+    expect(hungryAi.embargo[fedHouse.id]).not.toBe(true);
+
     const reliable = brokenCase();
     const contract = reliable.state.contracts[0];
     contract.windows = 4;
@@ -284,6 +307,8 @@ describe("политические решения", () => {
       { window: 3, delivered: 0, paid: 0, penalty: 0 },
     ];
     advanceSituations(reliable.state);
+    expect(situationDecision(reliable.state, reliable.buyer, reliable.state.situations[0])).toBe("yield");
+    reliable.state.contracts.push({ ...contract, id: "k-rejected", status: "rejected", history: [], delivered: 0 });
     expect(situationDecision(reliable.state, reliable.buyer, reliable.state.situations[0])).toBe("yield");
 
     const thin = brokenCase();
@@ -538,6 +563,18 @@ describe("политические решения", () => {
     const dispute = both.situations.find((item) => item.kind === "tariffDispute");
     expect(dispute?.otherId).toBe(hungryGuest.id);
     expect(dispute?.shipId).toBe(both.ships[0].id);
+
+    const next = createCrisisScenario();
+    const nextPort = next.worlds.find((world) => world.id === "c-port")!;
+    const second = endowHouse(next, { name: "Второй голод", color: "#a66", crest: "ВГ", profile: "merchant", player: false, credits: 2000 });
+    const secondHome = endowWorld(next, { id: "c-second", name: "Вторая столица", specialty: "голод", x: 30, y: 30, ownerId: second.id, population: 200, popMoneyPerCapita: 2, stock: { food: 2 } });
+    second.capitalId = secondHome.id;
+    const secondShip = placeShip(next, second.id, nextPort, "skiff", 5);
+    nextPort.port.queue = [secondShip.id];
+    dispatch(next, { type: "resolveSituation", houseId: next.houses[0].id, situationId: next.situations[0].id, choice: "pay" });
+    advanceSituations(next);
+    const follow = next.situations.find((item) => item.kind === "tariffDispute" && item.status === "open");
+    expect(follow?.otherId).toBe(second.id);
 
     const shown = successionCase(true);
     shown.treaties[0].tariffBps = 900;

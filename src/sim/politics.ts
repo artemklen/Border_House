@@ -223,7 +223,10 @@ export function resolveSituation(state: SimState, houseId: string, situationId: 
 
 function preferredChoice(state: SimState, house: House, situation: Situation): SituationChoice {
   const goal = describeGoal(state, house).kind;
-  if (situation.kind === "foodDependence") return foodSuppliers(state, house).length >= 2 ? "refuse" : "yield";
+  if (situation.kind === "foodDependence") {
+    if (situation.otherId && activeTreaty(state, house.id, situation.otherId)) return "yield";
+    return foodSuppliers(state, house).length >= 2 ? "refuse" : "yield";
+  }
   if (situation.kind === "tariffDispute") return goal === "transit" ? "refuse" : "yield";
   if (situation.kind === "brokenContract") return contractReliability(state, house.id, situation.otherId ?? "") >= 0.5 ? "yield" : "refuse";
   if (situation.kind === "congestedPort") return goal === "transit" ? "refuse" : "yield";
@@ -487,6 +490,7 @@ function openTariffDispute(state: SimState, house: House): void {
     if (cover >= 12) continue;
     const charged = tariffBetween(state, other.id, house.id, world.tariffBps, world.id);
     if (charged < 800) continue;
+    const before = state.situations.length;
     pushSituation(state, house, {
       kind: "tariffDispute",
       otherId: other.id,
@@ -502,6 +506,7 @@ function openTariffDispute(state: SimState, house: House): void {
       qty: FOOD_QTY,
       good: "food",
     });
+    if (state.situations.length === before) continue;
     opened = true;
     break;
     }
@@ -800,7 +805,7 @@ function proposedTreaty(state: SimState, aId: string, bId: string): boolean {
 }
 
 function contractReliability(state: SimState, aId: string, bId: string): number {
-  const rows = state.contracts.filter((contract) => (contract.sellerId === aId && contract.buyerId === bId) || (contract.sellerId === bId && contract.buyerId === aId));
+  const rows = state.contracts.filter((contract) => contract.status !== "proposed" && contract.status !== "rejected" && ((contract.sellerId === aId && contract.buyerId === bId) || (contract.sellerId === bId && contract.buyerId === aId)));
   let promised = 0;
   let got = 0;
   for (const contract of rows) {
