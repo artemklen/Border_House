@@ -215,7 +215,7 @@ describe("подсказка первого рейса", () => {
     expect(base).toContain("назначьте грузовоз");
     expect(base).toContain("«Порт Лиры»");
     expect(base).toContain("«Застава Корвус»");
-    expect(quotedNames(base).every((name) => name === "Флот" || worldNames(createGame({ seed: 21, scenario: "base" })).has(name))).toBe(true);
+    expect(quotedNames(base).every((name) => name === "Флот" || name === "Касса" || worldNames(createGame({ seed: 21, scenario: "base" })).has(name))).toBe(true);
 
     for (const state of [
       createBorderContractScenario(),
@@ -225,7 +225,7 @@ describe("подсказка первого рейса", () => {
     ]) {
       const hint = hintLines(state).join(" ");
       const known = worldNames(state);
-      expect(quotedNames(hint).every((name) => name === "Флот" || known.has(name))).toBe(true);
+      expect(quotedNames(hint).every((name) => name === "Флот" || name === "Касса" || known.has(name))).toBe(true);
       expect(hint).not.toContain("Хлебный Пояс");
       expect(hint).not.toContain("Порт Лиры");
       expect(hint).not.toContain("Застава Корвус");

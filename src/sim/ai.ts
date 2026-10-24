@@ -45,12 +45,30 @@ export function planAi(state: SimState): void {
         noteAi(state, house.id, result.ok ? developmentPlan.because : `${house.name} не смог: ${result.reason}`);
       }
     }
+    const closedBefore = new Set(Object.entries(house.embargo).filter(([, closed]) => closed).map(([id]) => id));
     for (const situation of state.situations) {
       if (situation.houseId !== house.id || situation.status !== "open") continue;
       const choice = situationDecision(state, house, situation);
       const decision = dispatch(state, { type: "resolveSituation", houseId: house.id, situationId: situation.id, choice });
       noteAi(state, house.id, decision.ok ? `${house.name}: ${decision.reason}` : `${house.name} не стал решать: ${decision.reason}`);
     }
+    reopenHungryEmbargo(state, house, closedBefore);
+  }
+}
+
+function reopenHungryEmbargo(state: SimState, house: House, closedBefore: Set<string>): void {
+  const capital = worldOf(state, house.capitalId);
+  const cover = capital ? foodCover(capital.population, capital.stock.food, state.rules.foodPer100) : 999;
+  if (cover >= 12) return;
+  for (const otherId of closedBefore) {
+    if (house.embargo[otherId] !== true) continue;
+    const held = state.worlds.filter((world) => world.ownerId === otherId).reduce((sum, world) => sum + world.stock.food, 0);
+    if (held <= 40) continue;
+    const result = dispatch(state, { type: "setEmbargo", houseId: house.id, otherId, embargo: false });
+    noteAi(state, house.id, result.ok
+      ? `${house.name} снимает эмбарго: без чужого продовольствия столица не протянет.`
+      : `${house.name} не снял эмбарго: ${result.reason}`);
+    break;
   }
 }
 
@@ -271,19 +289,6 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     });
   }
 
-  if (cover < 12) {
-    for (const [otherId, closed] of Object.entries(house.embargo)) {
-      if (!closed) continue;
-      const supplier = worldOf(state, houseOf(state, otherId)?.capitalId ?? null);
-      if (supplier && supplier.stock.food > 40) {
-        plans.push({
-          command: { type: "setEmbargo", houseId: house.id, otherId, embargo: false },
-          because: `${house.name} снимает эмбарго: без чужого продовольствия столица не протянет.`,
-        });
-        break;
-      }
-    }
-  }
   return plans;
 }
 

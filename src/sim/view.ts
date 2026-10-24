@@ -167,12 +167,44 @@ export function hintLines(state: SimState): string[] {
   if (!player) return [];
   const tips: string[] = [];
   const routes = state.routes.filter((route) => route.houseId === player.id);
+  const pressure = treasuryWarning(state, player.id);
+  if (pressure) tips.push(pressure);
   if (routes.length === 0) tips.push(firstVoyageHint(state, player));
   const idle = state.ships.find((ship) => ship.houseId === player.id && ship.status === "docked" && !ship.routeId);
   if (idle && routes.length > 0) tips.push(`${idle.name} стоит без маршрута. Назначение в «Флоте» не телепортирует груз: корабль поедет от текущего мира.`);
   const stuck = bottlenecks(state, player.id)[0];
   if (stuck) tips.push(hintSentence(stuck.title, stuck.detail));
   return tips.slice(0, 3);
+}
+
+export function treasuryOutlook(state: SimState, houseId: string): { wages: number; upkeep: number; free: number; runway: number } | null {
+  const house = houseOf(state, houseId);
+  if (!house) return null;
+  let wages = 0;
+  let upkeep = 0;
+  for (const world of state.worlds) {
+    if (world.ownerId !== houseId) continue;
+    for (const building of world.buildings) {
+      if (building.remainingDays > 0 || !building.enabled) continue;
+      const recipe = RECIPES[building.kind];
+      upkeep += recipe.upkeep;
+      wages += (building.workers > 0 ? building.workers : recipe.workers) * state.rules.wage;
+    }
+  }
+  for (const ship of state.ships) {
+    if (ship.houseId !== houseId || ship.status === "building") continue;
+    upkeep += SHIP_CLASSES[ship.classId].upkeep;
+  }
+  const burn = wages + upkeep;
+  if (burn <= 0) return null;
+  const free = availableCredits(house);
+  return { wages, upkeep, free, runway: Math.floor(free / burn) };
+}
+
+export function treasuryWarning(state: SimState, houseId: string): string | null {
+  const outlook = treasuryOutlook(state, houseId);
+  if (!outlook || outlook.runway > 60) return null;
+  return `Казна: зарплаты ${outlook.wages} и содержание ${outlook.upkeep} кред. в день, свободно ${outlook.free}. Если поступления не покроют этот платёж, денег хватит примерно на ${outlook.runway} дн. Это оценка по текущим сменам, не гарантия. Строки — вкладка «Касса». Рейс за выручкой — вкладка «Флот».`;
 }
 
 export function hintSentence(title: string, detail: string): string {
