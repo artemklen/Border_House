@@ -359,7 +359,7 @@ export function tariffBetween(state: SimState, travelerId: string, ownerId: stri
   const base = deal ? deal.tariffBps : worldTariff;
   const grants = worldId
     ? state.tariffGrants.filter(
-        (item) => item.worldId === worldId && item.ownerId === ownerId && item.beneficiaryId === travelerId && item.untilTick > state.tick,
+        (item) => item.worldId === worldId && item.ownerId === ownerId && item.beneficiaryId === travelerId && item.untilTick >= state.tick,
       )
     : [];
   return grants.reduce((rate, grant) => Math.min(rate, grant.bps), base);

@@ -363,6 +363,8 @@ describe("политические решения", () => {
     const supplier = hungry.houses[1];
     dispatch(hungry, { type: "resolveSituation", houseId: player.id, situationId: hungry.situations[0].id, choice: "yield" });
     expect(tariffBetween(hungry, supplier.id, player.id, capital.tariffBps, capital.id)).toBe(200);
+    hungry.tick = hungry.tariffGrants[0].untilTick;
+    expect(tariffBetween(hungry, supplier.id, player.id, capital.tariffBps, capital.id)).toBe(200);
     expect(hungry.treaties[0].proposerId).toBe(supplier.id);
 
     const blocked = createCrisisScenario();
