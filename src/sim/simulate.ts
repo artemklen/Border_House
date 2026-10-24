@@ -1,5 +1,6 @@
 import { foodRouteNeedsFuel, planAi, refreshFoodFuel } from "./ai";
 import { payContractTakes, planSale, settleContractWindows } from "./contracts";
+import { advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
 import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
@@ -37,6 +38,7 @@ export function tick(state: SimState): void {
   for (const world of state.worlds) world.demand = emptyGoods();
   employAndProduce(state);
   feedWorlds(state);
+  advancePorts(state);
   sail(state);
   updatePrices(state);
   closeTreaties(state);
@@ -229,11 +231,20 @@ function sail(state: SimState): void {
         continue;
       }
     }
-    if (ship.worldId) handleDock(state, ship, paidUpkeep.has(ship.id));
+    if (ship.worldId) prepareDock(state, ship, paidUpkeep.has(ship.id));
   }
+  arrangePorts(state);
+  for (const world of state.worlds) {
+    for (const shipId of [...world.port.berth]) {
+      const ship = state.ships.find((item) => item.id === shipId);
+      if (ship) serviceDock(state, ship);
+    }
+  }
+  releaseIdleBerths(state);
+  recordPortDays(state);
 }
 
-function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
+function prepareDock(state: SimState, ship: Ship, upkeepPaid = false): void {
   const world = worldOf(state, ship.worldId);
   if (!world) return;
   if (ship.status === "blocked") ship.status = "docked";
@@ -260,6 +271,12 @@ function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
     return;
   }
   if (activeRoute) refreshFoodFuel(state, ship, world, activeRoute);
+}
+
+function serviceDock(state: SimState, ship: Ship): void {
+  const world = worldOf(state, ship.worldId);
+  if (!world || !world.port.berth.includes(ship.id)) return;
+  const activeRoute = routeOf(state, ship.routeId);
   const hold = activeRoute ? applyStop(state, ship, world, activeRoute) : false;
   let stuck = false;
   if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id) {
@@ -291,6 +308,7 @@ function handleDock(state: SimState, ship: Ship, upkeepPaid = false): void {
     block(ship, "нет топлива на следующий перегон");
     return;
   }
+  if (routeNow && holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity)) return;
   if (routeNow) depart(state, ship, routeNow);
 }
 
@@ -360,12 +378,19 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
         ship.stopReason = "чужой склад: нужна покупка";
         continue;
       }
-      const qty = Math.min(wanted, Math.max(0, world.stock[action.good] - action.keep), roomCargo);
-      if (qty <= 0) ship.stopReason = `нечего грузить: ${goodLabel(action.good)}`;
+      const raw = Math.min(wanted, Math.max(0, world.stock[action.good] - action.keep), roomCargo);
+      const capped = capPort(ship, raw);
+      const qty = capped.qty;
+      if (qty <= 0) ship.stopReason = capped.limited ? "лимит порта на сегодня исчерпан" : `нечего грузить: ${goodLabel(action.good)}`;
       else {
         moveGoods(world.stock, ship.cargo, action.good, qty);
         ship.visitMoved[index] = moved + qty;
         rememberSupply(ship, action.good, ship.houseId, qty);
+        notePortMove(world, route, qty);
+      }
+      if (capped.limited) {
+        ship.stopReason = "лимит порта на сегодня исчерпан";
+        hold = true;
       }
       continue;
     }
@@ -375,14 +400,16 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
         continue;
       }
       const eligible = Math.max(0, ship.cargo[action.good] - action.keep);
-      const qty = Math.min(wanted, eligible, roomStock);
-      if (qty < Math.min(wanted, eligible) && roomStock <= qty) {
-        ship.stopReason = "склад заполнен";
+      const capped = capPort(ship, Math.min(wanted, eligible, roomStock));
+      const qty = capped.qty;
+      if ((qty < Math.min(wanted, eligible) && roomStock <= qty) || capped.limited) {
+        ship.stopReason = capped.limited ? "лимит порта на сегодня исчерпан" : "склад заполнен";
         hold = true;
       }
       if (qty > 0) {
         moveGoods(ship.cargo, world.stock, action.good, qty);
         ship.visitMoved[index] = moved + qty;
+        notePortMove(world, route, qty);
         for (const slice of drawSupply(ship, action.good, qty)) {
           if (!world.imported[slice.houseId]) world.imported[slice.houseId] = emptyGoods();
           world.imported[slice.houseId][action.good] += slice.qty;
@@ -415,14 +442,20 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     const buyer = houseOf(state, buyerHouse);
     const seller = houseOf(state, sellerHouse);
     if (!buyer || !seller || price <= 0) continue;
+    const roomed = Math.min(wanted, available, room);
+    const capped = action.mode === "sell" || action.mode === "buy" ? capPort(ship, roomed) : { qty: roomed, limited: false };
     const sale = action.mode === "sell" && world.ownerId
-      ? planSale(state, ship, world.ownerId, world.id, action.good, Math.min(wanted, available, room), price, action.price)
+      ? planSale(state, ship, world.ownerId, world.id, action.good, capped.qty, price, action.price)
       : null;
     const affordable = Math.floor(availableCredits(buyer) / price);
-    const qty = sale ? sale.qty : Math.min(wanted, available, room, affordable);
+    const qty = sale ? sale.qty : Math.min(capped.qty, affordable);
+    if (qty < capped.qty) ship.portMoved -= capped.qty - qty;
     if (qty <= 0) {
       if (available <= 0) ship.stopReason = `нет товара с учётом резерва: ${goodLabel(action.good)}`;
-      else if (sale?.blocked === "price") {
+      else if (capped.limited && capped.qty === 0) {
+        ship.stopReason = "лимит порта на сегодня исчерпан";
+        hold = true;
+      } else if (sale?.blocked === "price") {
         ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
         hold = true;
       } else if (affordable <= 0 || sale?.blocked === "money") {
@@ -451,6 +484,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       seller.flow.sales += marketMoney;
     }
     moveGoods(sellerPile, buyerPile, action.good, qty);
+    notePortMove(world, route, qty);
     ship.visitMoved[index] = moved + qty;
     if (action.mode === "buy") rememberSupply(ship, action.good, world.ownerId ?? ship.houseId, qty);
     let deliveredQty = qty;
@@ -480,6 +514,9 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     } else if (action.mode === "sell" && qty < wanted && room <= qty) {
       ship.stopReason = "склад заполнен";
       hold = true;
+    } else if (capped.limited && qty < wanted) {
+      ship.stopReason = "лимит порта на сегодня исчерпан";
+      hold = true;
     }
   }
   return hold;
@@ -505,7 +542,7 @@ function countDelivery(state: SimState, sellerId: string, world: World, good: Go
   }
 }
 
-function depart(state: SimState, ship: Ship, route: Route): void {
+export function depart(state: SimState, ship: Ship, route: Route): void {
   if (route.stops.length < 2) {
     ship.stopReason = "в маршруте меньше двух остановок";
     return;
@@ -555,6 +592,7 @@ function depart(state: SimState, ship: Ship, route: Route): void {
   destroyGoods(ship.cargo, state.accounts, "fuel", fuel);
   drawSupply(ship, "fuel", fuel);
   route.fuelUsed += fuel;
+  leavePort(state, ship);
   for (const fee of fees) {
     if (fee.fee <= 0 || !fee.world.ownerId) continue;
     moveCredits(state, { kind: "house", id: payer.id }, { kind: "house", id: fee.world.ownerId }, fee.fee);
@@ -569,7 +607,7 @@ function depart(state: SimState, ship: Ship, route: Route): void {
   ship.distanceLeft = dist;
   ship.worldId = null;
   ship.stopIndex = nextIndex;
-  ship.stopReason = null;
+  ship.stopReason = ship.stopReason?.includes("частичный рейс") ? ship.stopReason : null;
 }
 
 export function nextStopIndex(ship: Ship, route: Route): number {
@@ -742,6 +780,11 @@ function rollAccounts(state: SimState): void {
     route.revenue = 0;
     route.cost = 0;
     route.fuelUsed = 0;
+    route.lastMoved = route.movedWindow;
+    route.movedWindow = 0;
+    route.daysFlying = 0;
+    route.daysPort = 0;
+    route.daysWaiting = 0;
   }
 }
 

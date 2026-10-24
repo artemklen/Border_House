@@ -7,6 +7,7 @@ import {
   emptyFlow,
   serial,
 } from "./mutate";
+import { emptyPort } from "./port";
 import { normalizeSeed } from "./prng";
 import { nextUnit } from "./prng";
 import type { AiProfile, BuildingKind, GameRules, House, Person, Ship, ShipClassId, SimState, World } from "./types";
@@ -37,7 +38,7 @@ export function createGame(options: NewGameOptions): SimState {
 
 export function createSkeleton(seed: number, scenario: string, rules: GameRules = defaultRules()): SimState {
   return {
-    version: 2,
+    version: 3,
     seed,
     scenario,
     tick: 0,
@@ -133,6 +134,7 @@ export function endowWorld(
     lastProduced: emptyGoods(),
     lastEaten: 0,
     windowDays: 0,
+    port: emptyPort(),
   };
   state.worlds.push(world);
   for (const good of GOODS) createGoods(world.stock, state.accounts, good, 0);
@@ -180,6 +182,9 @@ export function placeShip(state: SimState, houseId: string, world: World, classI
     supplyFrom: {},
     visitKey: "",
     visitMoved: [],
+    portArrived: 0,
+    portMoved: 0,
+    portAllowance: 0,
   };
   state.ships.push(ship);
   if (fuel > 0) createGoods(ship.cargo, state.accounts, "fuel", fuel);

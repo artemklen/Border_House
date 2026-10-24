@@ -1489,6 +1489,14 @@ describe("замечания ревью", () => {
       lastRevenue: 0,
       lastCost: 0,
       lastFuelUsed: 0,
+      minLoad: 0,
+      maxWait: 0,
+      waitDays: 0,
+      movedWindow: 0,
+      lastMoved: 0,
+      daysFlying: 0,
+      daysPort: 0,
+      daysWaiting: 0,
     });
     ship.routeId = "r-nav";
     ship.status = "docked";

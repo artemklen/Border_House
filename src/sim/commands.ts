@@ -1,4 +1,5 @@
 import { cancelContract, proposeContract, respondContract } from "./contracts";
+import { expandPort } from "./port";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, emptyGoods, type GoodId } from "./goods";
 import {
@@ -28,7 +29,7 @@ export function dispatch(state: SimState, command: Command): CommandResult {
     case "buildShip":
       return buildShip(state, command);
     case "createRoute":
-      return createRoute(state, command.houseId, command.name, command.stops, command.shipId, false, command.autoFuel, command.returnRouteId);
+      return createRoute(state, command.houseId, command.name, command.stops, command.shipId, false, command.autoFuel, command.returnRouteId, command.minLoad, command.maxWait);
     case "updateRoute":
       return updateRoute(state, command.routeId, command.name, command.stops);
     case "pauseRoute":
@@ -53,6 +54,8 @@ export function dispatch(state: SimState, command: Command): CommandResult {
       return colonize(state, command.houseId, command.shipId, command.worldId);
     case "appointGovernor":
       return appointGovernor(state, command.houseId, command.worldId, command.personId);
+    case "expandPort":
+      return expandPort(state, command.houseId, command.worldId, command.kind);
     default:
       return fail("неизвестная команда");
   }
@@ -158,12 +161,15 @@ function buildShip(state: SimState, command: Extract<Command, { type: "buildShip
     supplyFrom: {},
     visitKey: "",
     visitMoved: [],
+    portArrived: 0,
+    portMoved: 0,
+    portAllowance: 0,
   });
   note(state, command.houseId, `Заложена ${shipClass.name} на «${world.name}».`);
   return ok(`верфь займёт ${shipClass.days} дн.`);
 }
 
-function createRoute(state: SimState, houseId: string, name: string, stops: RouteStop[], shipId?: string, keepMission = false, autoFuel = false, returnRouteId?: string): CommandResult {
+function createRoute(state: SimState, houseId: string, name: string, stops: RouteStop[], shipId?: string, keepMission = false, autoFuel = false, returnRouteId?: string, minLoad = 0, maxWait = 0): CommandResult {
   const house = houseOf(state, houseId);
   if (!house) return fail("дом не найден");
   const checked = validateStops(state, stops);
@@ -186,6 +192,14 @@ function createRoute(state: SimState, houseId: string, name: string, stops: Rout
     lastRevenue: 0,
     lastCost: 0,
     lastFuelUsed: 0,
+    minLoad: clampRouteNumber(minLoad, 0, 500),
+    maxWait: clampRouteNumber(maxWait, 0, 30),
+    waitDays: 0,
+    movedWindow: 0,
+    lastMoved: 0,
+    daysFlying: 0,
+    daysPort: 0,
+    daysWaiting: 0,
   };
   if (autoFuel) route.autoFuel = true;
   if (returnRouteId) route.returnRouteId = returnRouteId;
@@ -556,6 +570,11 @@ function validateStops(state: SimState, stops: RouteStop[]): CommandResult {
     }
   }
   return ok();
+}
+
+function clampRouteNumber(value: number | undefined, min: number, max: number): number {
+  if (!Number.isInteger(value)) return min;
+  return Math.max(min, Math.min(max, value as number));
 }
 
 function ok(reason = ""): CommandResult {

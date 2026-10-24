@@ -10,7 +10,7 @@ export class SaveError extends Error {
   }
 }
 
-/** Версия 2 хранит коммерческие контракты. Запись версии 1 поднимается: контрактов нет, резерв казны нулевой. Чужая или битая запись не подменяет текущую партию. */
+/** Версия 3 хранит порты и очереди. Версии 1 и 2 поднимаются: у миров базовый порт, у маршрутов нет ожидания загрузки. */
 export function serialize(state: SimState): string {
   return JSON.stringify({ version: state.version, state });
 }
@@ -39,7 +39,7 @@ export function deserialize(raw: string): SimState {
   }
   if (!parsed || typeof parsed !== "object") throw new SaveError("Файл сохранения повреждён.");
   const file = parsed as { version?: unknown; state?: SimState };
-  if (file.version !== 1 && file.version !== 2) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1 и 2.");
+  if (file.version !== 1 && file.version !== 2 && file.version !== 3) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1, 2 и 3.");
   const state = file.state;
   if (!state || !Number.isInteger(state.tick) || state.tick < 0 || typeof state.rngState !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
@@ -50,16 +50,56 @@ export function deserialize(raw: string): SimState {
 }
 
 function migrateSave(state: SimState, version: number): void {
-  if (version !== 1) return;
-  state.version = 2;
-  if (!Array.isArray(state.contracts)) state.contracts = [];
-  if (Array.isArray(state.houses)) {
-    for (const house of state.houses) {
-      if (house && !Number.isInteger(house.reserved)) house.reserved = 0;
-      for (const book of [house?.flow, house?.lastFlow]) {
-        if (!book) continue;
-        if (!Number.isInteger(book.penalties)) book.penalties = 0;
-        if (!Number.isInteger(book.compensation)) book.compensation = 0;
+  if (version === 1) {
+    if (!Array.isArray(state.contracts)) state.contracts = [];
+    if (Array.isArray(state.houses)) {
+      for (const house of state.houses) {
+        if (house && !Number.isInteger(house.reserved)) house.reserved = 0;
+        for (const book of [house?.flow, house?.lastFlow]) {
+          if (!book) continue;
+          if (!Number.isInteger(book.penalties)) book.penalties = 0;
+          if (!Number.isInteger(book.compensation)) book.compensation = 0;
+        }
+      }
+    }
+  }
+  if (version < 3) {
+    state.version = 3;
+    if (Array.isArray(state.worlds)) {
+      for (const world of state.worlds) {
+        if (!world) continue;
+        if (!world.port || !Array.isArray(world.port.queue) || !Array.isArray(world.port.berth)) {
+          world.port = {
+            berthLevel: 0,
+            speedLevel: 0,
+            project: null,
+            queue: [],
+            berth: [],
+            handled: 0,
+            upkeepPaid: true,
+          };
+        }
+      }
+    }
+    if (Array.isArray(state.routes)) {
+      for (const route of state.routes) {
+        if (!route) continue;
+        if (!Number.isInteger(route.minLoad)) route.minLoad = 0;
+        if (!Number.isInteger(route.maxWait)) route.maxWait = 0;
+        if (!Number.isInteger(route.waitDays)) route.waitDays = 0;
+        if (!Number.isInteger(route.movedWindow)) route.movedWindow = 0;
+        if (!Number.isInteger(route.lastMoved)) route.lastMoved = 0;
+        if (!Number.isInteger(route.daysFlying)) route.daysFlying = 0;
+        if (!Number.isInteger(route.daysPort)) route.daysPort = 0;
+        if (!Number.isInteger(route.daysWaiting)) route.daysWaiting = 0;
+      }
+    }
+    if (Array.isArray(state.ships)) {
+      for (const ship of state.ships) {
+        if (!ship) continue;
+        if (!Number.isInteger(ship.portArrived)) ship.portArrived = 0;
+        if (!Number.isInteger(ship.portMoved)) ship.portMoved = 0;
+        if (!Number.isInteger(ship.portAllowance)) ship.portAllowance = 0;
       }
     }
   }
@@ -82,7 +122,7 @@ function requirePrices(value: unknown, label: string): void {
 }
 
 function assertPlayable(state: SimState): void {
-  if (state.version !== 2) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
+  if (state.version !== 3) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   if (typeof state.seed !== "number" || !Number.isFinite(state.seed)) throw new SaveError("Файл сохранения повреждён: нет зерна генератора.");
   for (const key of LISTS) {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
@@ -171,13 +211,23 @@ function assertPlayable(state: SimState): void {
       if (building.stopReason != null && typeof building.stopReason !== "string") throw new SaveError("Файл сохранения повреждён: у предприятия нет подписи.");
     }
     worldIds.add(world.id);
+    const port = world.port;
+    if (!port || !Array.isArray(port.queue) || !Array.isArray(port.berth) || !requireInt(port.berthLevel, 0, 1) || !requireInt(port.speedLevel, 0, 1) || !requireInt(port.handled, 0, 1_000_000_000) || typeof port.upkeepPaid !== "boolean") {
+      throw new SaveError("Файл сохранения повреждён: порт мира повреждён.");
+    }
+    if (port.project && (port.project.kind !== "berth" && port.project.kind !== "speed" || !requireInt(port.project.remainingDays, 0, 30))) {
+      throw new SaveError("Файл сохранения повреждён: стройка порта повреждена.");
+    }
+    if (port.queue.some((id) => typeof id !== "string") || port.berth.some((id) => typeof id !== "string")) {
+      throw new SaveError("Файл сохранения повреждён: очередь порта повреждена.");
+    }
   }
   const routeIds = new Set<string>();
   for (const route of state.routes) {
     if (!route || typeof route.id !== "string" || typeof route.name !== "string" || !Array.isArray(route.stops) || !houseIds.has(route.houseId)) {
       throw new SaveError("Файл сохранения повреждён: маршрут без остановок.");
     }
-    const counters = ["revenue", "cost", "fuelUsed", "lastRevenue", "lastCost", "lastFuelUsed"] as const;
+    const counters = ["revenue", "cost", "fuelUsed", "lastRevenue", "lastCost", "lastFuelUsed", "minLoad", "maxWait", "waitDays", "movedWindow", "lastMoved", "daysFlying", "daysPort", "daysWaiting"] as const;
     if (counters.some((key) => typeof route[key] !== "number" || !Number.isFinite(route[key]))) {
       throw new SaveError("Файл сохранения повреждён: учёт маршрута повреждён.");
     }
@@ -202,6 +252,9 @@ function assertPlayable(state: SimState): void {
       throw new SaveError("Файл сохранения повреждён: учёт стоянки повреждён.");
     }
     if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
+    if (!Number.isInteger(ship.portArrived) || ship.portArrived < 0 || !Number.isInteger(ship.portMoved) || ship.portMoved < 0 || !Number.isInteger(ship.portAllowance) || ship.portAllowance < 0) {
+      throw new SaveError("Файл сохранения повреждён: учёт порта корабля повреждён.");
+    }
     normalizeSupply(ship);
     if (ship.routeId && !routeIds.has(ship.routeId)) throw new SaveError("Файл сохранения повреждён: корабль ссылается на неизвестный маршрут.");
     assertShipNavigation(ship, state, worldIds);
