@@ -1,3 +1,4 @@
+import { isContractStatus } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS } from "./goods";
 import type { SimState } from "./types";
@@ -9,9 +10,9 @@ export class SaveError extends Error {
   }
 }
 
-/** Совместима только версия 1. Чужая или битая запись не подменяет текущую партию: вызывающий код обязан оставить прежнее состояние, если метод бросил SaveError. */
+/** Версия 2 хранит коммерческие контракты. Запись версии 1 поднимается: контрактов нет, резерв казны нулевой. Чужая или битая запись не подменяет текущую партию. */
 export function serialize(state: SimState): string {
-  return JSON.stringify({ version: 1, state });
+  return JSON.stringify({ version: state.version, state });
 }
 
 /** false, если браузер отказал в записи. Исключение не выходит наружу, чтобы игровой цикл не остановился. */
@@ -38,16 +39,27 @@ export function deserialize(raw: string): SimState {
   }
   if (!parsed || typeof parsed !== "object") throw new SaveError("Файл сохранения повреждён.");
   const file = parsed as { version?: unknown; state?: SimState };
-  if (file.version !== 1) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает только версию 1.");
+  if (file.version !== 1 && file.version !== 2) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1 и 2.");
   const state = file.state;
   if (!state || !Number.isInteger(state.tick) || state.tick < 0 || typeof state.rngState !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   }
+  migrateSave(state);
   assertPlayable(state);
   return state;
 }
 
-const LISTS = ["houses", "worlds", "ships", "routes", "treaties", "people", "journal", "aiLog"] as const;
+function migrateSave(state: SimState): void {
+  state.version = 2;
+  if (!Array.isArray(state.contracts)) state.contracts = [];
+  if (Array.isArray(state.houses)) {
+    for (const house of state.houses) {
+      if (house && !Number.isInteger(house.reserved)) house.reserved = 0;
+    }
+  }
+}
+
+const LISTS = ["houses", "worlds", "ships", "routes", "treaties", "contracts", "people", "journal", "aiLog"] as const;
 
 function requireGoods(value: unknown, label: string): void {
   if (!value || typeof value !== "object") throw new SaveError(`Файл сохранения повреждён: нет поля «${label}».`);
@@ -64,7 +76,7 @@ function requirePrices(value: unknown, label: string): void {
 }
 
 function assertPlayable(state: SimState): void {
-  if (state.version !== 1) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
+  if (state.version !== 2) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   if (typeof state.seed !== "number" || !Number.isFinite(state.seed)) throw new SaveError("Файл сохранения повреждён: нет зерна генератора.");
   for (const key of LISTS) {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
@@ -101,6 +113,9 @@ function assertPlayable(state: SimState): void {
     if (!house || typeof house.id !== "string" || houseIds.has(house.id)) throw new SaveError("Файл сохранения повреждён: дом без идентификатора.");
     if (typeof house.credits !== "number" || !Number.isInteger(house.credits) || house.credits < 0) {
       throw new SaveError("Файл сохранения повреждён: казна дома нечисловая.");
+    }
+    if (!Number.isInteger(house.reserved) || house.reserved < 0 || house.reserved > house.credits) {
+      throw new SaveError("Файл сохранения повреждён: резерв казны вышел за деньги дома.");
     }
     const flowKeys = ["wages", "taxes", "sales", "purchases", "tariffsIn", "tariffsOut", "upkeep", "construction"] as const;
     if (!house.flow || !house.lastFlow || flowKeys.some((key) => typeof house.flow[key] !== "number" || typeof house.lastFlow[key] !== "number")) {
@@ -192,6 +207,29 @@ function assertPlayable(state: SimState): void {
     if (typeof treaty.windowDays !== "number" || typeof treaty.endTick !== "number" || typeof treaty.delivered !== "number" || typeof treaty.qtyPerWindow !== "number" || typeof treaty.note !== "string" || !requireInt(treaty.tariffBps, 0, 2500) || !requireInt(treaty.duration, 12, 360)) {
       throw new SaveError("Файл сохранения повреждён: договор повреждён.");
     }
+  }
+  let reservedByHouse = new Map<string, number>();
+  for (const contract of state.contracts) {
+    if (!contract || !isContractStatus(contract.status) || typeof contract.id !== "string" || typeof contract.note !== "string") {
+      throw new SaveError("Файл сохранения повреждён: контракт повреждён.");
+    }
+    if (!houseIds.has(contract.sellerId) || !houseIds.has(contract.buyerId) || !worldIds.has(contract.worldId)) {
+      throw new SaveError("Файл сохранения повреждён: контракт ссылается на неизвестный дом или мир.");
+    }
+    if (!(GOODS as readonly string[]).includes(contract.good)) throw new SaveError("Файл сохранения повреждён: у контракта нет товара.");
+    const fields = [contract.qtyPerWindow, contract.windows, contract.price, contract.shortfall, contract.deposit, contract.buyerReserve, contract.delivered, contract.paidWindow, contract.windowIndex, contract.windowDays];
+    if (fields.some((value) => !Number.isInteger(value) || value < 0) || contract.windows > 6 || contract.shortfall > contract.qtyPerWindow) {
+      throw new SaveError("Файл сохранения повреждён: числа контракта повреждены.");
+    }
+    if (!Array.isArray(contract.history) || !Array.isArray(contract.trades)) throw new SaveError("Файл сохранения повреждён: у контракта нет истории.");
+    if (contract.status === "proposed" || contract.status === "active") {
+      reservedByHouse.set(contract.sellerId, (reservedByHouse.get(contract.sellerId) ?? 0) + contract.deposit);
+      reservedByHouse.set(contract.buyerId, (reservedByHouse.get(contract.buyerId) ?? 0) + contract.buyerReserve);
+    }
+  }
+  for (const [houseId, reserved] of reservedByHouse) {
+    const house = state.houses.find((item) => item.id === houseId);
+    if (house && house.reserved < reserved) throw new SaveError("Файл сохранения повреждён: резерв казны меньше обязательств.");
   }
   for (const entry of [...state.journal, ...state.aiLog]) {
     if (!entry || typeof entry.tick !== "number" || typeof entry.text !== "string") {

@@ -98,6 +98,10 @@ export function createCredits(state: SimState, holder: { kind: "house"; id: stri
   state.accounts.creditsCreated += amount;
 }
 
+export function availableCredits(house: { credits: number; reserved?: number }): number {
+  return house.credits - (house.reserved ?? 0);
+}
+
 export function moveCredits(
   state: SimState,
   from: { kind: "house"; id: string } | { kind: "pop"; worldId: string },
@@ -120,7 +124,10 @@ export function sinkCredits(state: SimState, from: { kind: "house"; id: string }
 }
 
 function readCredits(state: SimState, holder: { kind: "house"; id: string } | { kind: "pop"; worldId: string }): number {
-  if (holder.kind === "house") return houseOf(state, holder.id)?.credits ?? 0;
+  if (holder.kind === "house") {
+    const house = houseOf(state, holder.id);
+    return house ? availableCredits(house) : 0;
+  }
   return worldOf(state, holder.worldId)?.popWallet ?? 0;
 }
 
@@ -268,6 +275,9 @@ export function audit(state: SimState): AuditReport {
   for (const house of state.houses) {
     if (house.credits < 0) errors.push(`отрицательная казна ${house.id}`);
     if (!Number.isInteger(house.credits)) errors.push(`дробные деньги ${house.id}`);
+    if (!Number.isInteger(house.reserved) || house.reserved < 0 || house.reserved > house.credits) {
+      errors.push(`резерв казны ${house.id} вышел за деньги дома`);
+    }
     credits += house.credits;
   }
   const goods = emptyGoods();

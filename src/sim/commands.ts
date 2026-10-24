@@ -1,3 +1,4 @@
+import { cancelContract, proposeContract, respondContract } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, emptyGoods, type GoodId } from "./goods";
 import {
@@ -5,6 +6,7 @@ import {
   destroyGoods,
   distance,
   drawSupply,
+  availableCredits,
   houseOf,
   moveCredits,
   note,
@@ -41,6 +43,12 @@ export function dispatch(state: SimState, command: Command): CommandResult {
       return proposeTreaty(state, command);
     case "respondTreaty":
       return respondTreaty(state, command.houseId, command.treatyId, command.accept);
+    case "proposeContract":
+      return proposeContract(state, command.sellerId, command.buyerId, command.good, command.worldId, command.qtyPerWindow, command.windows, command.price, command.shortfall, command.deposit);
+    case "respondContract":
+      return respondContract(state, command.houseId, command.contractId, command.accept);
+    case "cancelContract":
+      return cancelContract(state, command.houseId, command.contractId);
     case "colonize":
       return colonize(state, command.houseId, command.shipId, command.worldId);
     case "appointGovernor":
@@ -59,7 +67,7 @@ export function planBuild(state: SimState, houseId: string, worldId: string, kin
   if (world.stock.parts < recipe.parts) {
     return { ...fail(`нужно ${recipe.parts} комплектующих на складе, есть ${world.stock.parts}`), lines: [] };
   }
-  if (house.credits < recipe.credits) return { ...fail(`нужно ${recipe.credits} кредитов, в казне ${house.credits}`), lines: [] };
+  if (availableCredits(house) < recipe.credits) return { ...fail(`нужно ${recipe.credits} кредитов, в казне ${availableCredits(house)}`), lines: [] };
   const lines = [
     `Списать ${recipe.parts} комплектующих со склада «${world.name}».`,
     `Передать ${recipe.credits} кредитов местному населению как плату за стройку.`,
@@ -108,7 +116,7 @@ export function planShip(state: SimState, houseId: string, worldId: string, clas
   if (!house || !world) return { ...fail("нет такого дома или мира"), lines: [] };
   if (world.ownerId !== house.id) return { ...fail("верфь только в своём мире"), lines: [] };
   if (world.stock.parts < shipClass.parts) return { ...fail(`нужно ${shipClass.parts} комплектующих, есть ${world.stock.parts}`), lines: [] };
-  if (house.credits < shipClass.credits) return { ...fail(`нужно ${shipClass.credits} кредитов, в казне ${house.credits}`), lines: [] };
+  if (availableCredits(house) < shipClass.credits) return { ...fail(`нужно ${shipClass.credits} кредитов, в казне ${availableCredits(house)}`), lines: [] };
   return {
     ok: true,
     reason: "",
@@ -489,7 +497,7 @@ export function foundColony(state: SimState, ship: Ship, world: World): CommandR
   const rules = state.rules;
   if (ship.cargo.food < rules.colonizeFood) return fail("для колонии не хватает продовольствия на борту");
   if (ship.cargo.parts < rules.colonizeParts) return fail("для колонии не хватает комплектующих на борту");
-  if (house.credits < rules.colonizeCost) return fail("для колонии не хватает денег");
+  if (availableCredits(house) < rules.colonizeCost) return fail("для колонии не хватает денег");
   destroyGoods(ship.cargo, state.accounts, "food", rules.colonizeFood);
   destroyGoods(ship.cargo, state.accounts, "parts", rules.colonizeParts);
   drawSupply(ship, "food", rules.colonizeFood);

@@ -1,4 +1,5 @@
 import { foodRouteNeedsFuel, planAi, refreshFoodFuel } from "./ai";
+import { acceptContractUnits, contractRoom, foreignSupply, settleContractWindows } from "./contracts";
 import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
@@ -13,6 +14,7 @@ import {
   rememberSupply,
   emptyFlow,
   takeFoodRation,
+  availableCredits,
   houseOf,
   moveCredits,
   moveGoods,
@@ -105,7 +107,7 @@ function runBuilding(state: SimState, world: World, building: Building): void {
   const needed = requiredWorkers(state, world, recipe);
   if (building.workers < needed) {
     const wageBill = building.workers * state.rules.wage;
-    if (wageBill > 0 && owner.credits >= wageBill) {
+    if (wageBill > 0 && availableCredits(owner) >= wageBill) {
       moveCredits(state, { kind: "house", id: owner.id }, { kind: "pop", worldId: world.id }, wageBill);
       owner.flow.wages += wageBill;
     }
@@ -321,7 +323,7 @@ function clearToll(state: SimState, ship: Ship, world: World): boolean {
   }
   const payer = houseOf(state, ship.houseId);
   const owner = houseOf(state, world.ownerId);
-  if (!payer || !owner || payer.credits < fee) {
+  if (!payer || !owner || availableCredits(payer) < fee) {
     block(ship, "не хватает денег на пошлину");
     return false;
   }
@@ -418,8 +420,11 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     const buyer = houseOf(state, buyerHouse);
     const seller = houseOf(state, sellerHouse);
     if (!buyer || !seller || price <= 0) continue;
-    const affordable = Math.floor(buyer.credits / price);
-    const qty = Math.min(wanted, available, room, affordable);
+    const affordable = Math.floor(availableCredits(buyer) / price);
+    const contractCap = action.mode === "sell" && world.ownerId
+      ? Math.min(contractRoom(state, ship.houseId, world.ownerId, world.id, action.good), foreignSupply(ship, action.good, world.ownerId))
+      : 0;
+    const qty = Math.min(wanted, available, room, affordable + contractCap);
     if (qty <= 0) {
       if (available <= 0) ship.stopReason = `нет товара с учётом резерва: ${goodLabel(action.good)}`;
       else if (affordable <= 0) {
@@ -444,12 +449,21 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       const local = slices.filter((slice) => slice.houseId === world.ownerId).reduce((sum, slice) => sum + slice.qty, 0);
       deliveredQty = qty - local;
     }
-    moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, qty * price);
-    buyer.flow.purchases += qty * price;
-    seller.flow.sales += qty * price;
-    rememberTrade(buyer, seller, qty * price);
-    if (action.mode === "sell") route.revenue += qty * price;
-    else route.cost += qty * price;
+    const contractUnits = action.mode === "sell" ? Math.min(deliveredQty, contractCap) : 0;
+    const marketUnits = qty - contractUnits;
+    const contractMoney = contractUnits > 0 && world.ownerId
+      ? acceptContractUnits(state, ship.houseId, world.ownerId, world.id, action.good, contractUnits)
+      : 0;
+    const marketMoney = marketUnits * price;
+    if (marketMoney > 0) moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, marketMoney);
+    if (marketMoney > 0) {
+      buyer.flow.purchases += marketMoney;
+      seller.flow.sales += marketMoney;
+    }
+    const paid = marketMoney + contractMoney;
+    rememberTrade(buyer, seller, paid);
+    if (action.mode === "sell") route.revenue += paid;
+    else route.cost += paid;
     if (deliveredQty > 0) {
       if (!world.imported[sellerHouse]) world.imported[sellerHouse] = emptyGoods();
       world.imported[sellerHouse][action.good] += deliveredQty;
@@ -529,7 +543,7 @@ function depart(state: SimState, ship: Ship, route: Route): void {
     return;
   }
   const payer = houseOf(state, ship.houseId);
-  if (!payer || payer.credits < totalFee) {
+  if (!payer || availableCredits(payer) < totalFee) {
     block(ship, "не хватает денег на транзитную пошлину");
     return;
   }
@@ -589,6 +603,7 @@ function updatePrices(state: SimState): void {
 }
 
 function closeTreaties(state: SimState): void {
+  settleContractWindows(state);
   for (const treaty of state.treaties) {
     const tracked = treaty.status === "active" && (treaty.kind === "supply" || treaty.kind === "exchange");
     if (tracked) {
