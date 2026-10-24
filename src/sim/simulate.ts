@@ -270,13 +270,13 @@ function prepareDock(state: SimState, ship: Ship, upkeepPaid = false): void {
     ship.stopReason = "маршрут на паузе";
     return;
   }
-  if (activeRoute) refreshFoodFuel(state, ship, world, activeRoute);
 }
 
 function serviceDock(state: SimState, ship: Ship): void {
   const world = worldOf(state, ship.worldId);
   if (!world || !world.port.berth.includes(ship.id)) return;
   const activeRoute = routeOf(state, ship.routeId);
+  if (activeRoute) refreshFoodFuel(state, ship, world, activeRoute);
   const hold = activeRoute ? applyStop(state, ship, world, activeRoute) : false;
   let stuck = false;
   if (ship.mission?.type === "colonize" && ship.mission.worldId === world.id) {
@@ -294,8 +294,9 @@ function serviceDock(state: SimState, ship: Ship): void {
   if (hold || stuck) return;
   const routeNow = routeOf(state, ship.routeId);
   if (routeNow?.returnRouteId && routeOf(state, routeNow.returnRouteId)) {
+    const home = routeOf(state, routeNow.returnRouteId);
     const fueled = routeNow.stops.some((stop) => stop.worldId === world.id && stop.actions.some((action) => action.good === "fuel" && (action.mode === "load" || action.mode === "buy")));
-    if (fueled && ship.cargo.fuel >= 20) {
+    if (fueled && ship.cargo.fuel >= 20 && home && !foodRouteNeedsFuel(state, ship, home)) {
       const refuelId = routeNow.id;
       dispatch(state, { type: "assignShip", shipId: ship.id, routeId: routeNow.returnRouteId });
       if (state.ships.every((other) => other.routeId !== refuelId)) {
@@ -600,6 +601,7 @@ export function depart(state: SimState, ship: Ship, route: Route): void {
     houseOf(state, fee.world.ownerId)!.flow.tariffsIn += fee.fee;
     route.cost += fee.fee;
   }
+  ship.loadWait = 0;
   ship.status = "transit";
   ship.fromId = origin.id;
   ship.toId = dest.id;

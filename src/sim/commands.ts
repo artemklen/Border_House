@@ -31,7 +31,7 @@ export function dispatch(state: SimState, command: Command): CommandResult {
     case "createRoute":
       return createRoute(state, command.houseId, command.name, command.stops, command.shipId, false, command.autoFuel, command.returnRouteId, command.minLoad, command.maxWait);
     case "updateRoute":
-      return updateRoute(state, command.routeId, command.name, command.stops);
+      return updateRoute(state, command.routeId, command.name, command.stops, command.minLoad, command.maxWait);
     case "pauseRoute":
       return pauseRoute(state, command.routeId, command.paused);
     case "assignShip":
@@ -164,6 +164,7 @@ function buildShip(state: SimState, command: Extract<Command, { type: "buildShip
     portArrived: 0,
     portMoved: 0,
     portAllowance: 0,
+    loadWait: 0,
   });
   note(state, command.houseId, `Заложена ${shipClass.name} на «${world.name}».`);
   return ok(`верфь займёт ${shipClass.days} дн.`);
@@ -212,7 +213,7 @@ function createRoute(state: SimState, houseId: string, name: string, stops: Rout
   return ok("маршрут создан");
 }
 
-function updateRoute(state: SimState, routeId: string, name: string, stops: RouteStop[]): CommandResult {
+function updateRoute(state: SimState, routeId: string, name: string, stops: RouteStop[], minLoad?: number, maxWait?: number): CommandResult {
   const route = routeOf(state, routeId);
   if (!route) return fail("маршрут не найден");
   const checked = validateStops(state, stops);
@@ -220,6 +221,8 @@ function updateRoute(state: SimState, routeId: string, name: string, stops: Rout
   const flying = state.ships.some((ship) => ship.routeId === route.id && ship.status === "transit");
   route.stops = stops;
   route.name = name.trim() || route.name;
+  if (minLoad !== undefined) route.minLoad = clampRouteNumber(minLoad, 0, 500);
+  if (maxWait !== undefined) route.maxWait = clampRouteNumber(maxWait, 0, 30);
   for (const ship of state.ships) {
     if (ship.routeId !== route.id) continue;
     ship.visitKey = "";

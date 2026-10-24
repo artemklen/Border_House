@@ -399,12 +399,14 @@ export function App() {
                     onCreate={() => act({ type: "createRoute", houseId: player.id, name: draftName, stops: draftStops, shipId: fleetCommandShipId(selectedShip, player.id, shipId) || undefined, minLoad: draftMinLoad, maxWait: draftMaxWait })}
                     onPause={(routeId, next) => act({ type: "pauseRoute", routeId, paused: next })}
                     onAssign={(id, routeId) => act({ type: "assignShip", shipId: id, routeId })}
-                    onUpdate={(routeId) => act({ type: "updateRoute", routeId, name: draftName, stops: draftStops })}
+                    onUpdate={(routeId) => act({ type: "updateRoute", routeId, name: draftName, stops: draftStops, minLoad: draftMinLoad, maxWait: draftMaxWait })}
                     onWhy={(id) => setMessage(explainShip(sim, id))}
                     onLoadRoute={(routeId) => {
                       const route = sim.routes.find((item) => item.id === routeId);
                       if (!route) return;
                       setDraftName(route.name);
+                      setDraftMinLoad(route.minLoad);
+                      setDraftMaxWait(route.maxWait);
                       setDraftStops(route.stops.map((stop) => ({ worldId: stop.worldId, actions: stop.actions.map((item) => ({ ...item })) })));
                     }}
                   />
@@ -707,7 +709,7 @@ function FleetPanel(props: {
         <article key={route.id} className="card">
           <h3>{route.name}</h3>
           <p>{route.paused ? "на паузе" : "идёт"}. Это окно: выручка {route.revenue}, расход {route.cost}, топливо {route.fuelUsed}, груз {route.movedWindow} ед. Дней в пути {route.daysFlying}, у причала {route.daysPort}, в очереди {route.daysWaiting}. Прошлое окно: {route.lastRevenue} / {route.lastCost}, груз {route.lastMoved}.</p>
-          <p>Минимум загрузки {route.minLoad}, ждать до {route.maxWait} дн., уже ждёт {route.waitDays}. Узкое место смотрите по тексту стоянки корабля: очередь, лимит порта или склад.</p>
+          <p>Минимум загрузки {route.minLoad}, ждать до {route.maxWait} дн., уже ждёт {Math.max(0, ...props.sim.ships.filter((ship) => ship.routeId === route.id).map((ship) => ship.loadWait), 0)}. Узкое место смотрите по тексту стоянки корабля: очередь, лимит порта или склад.</p>
           <div className="row">
             <button onClick={() => props.onLoadRoute(route.id)}>В черновик</button>
             <button onClick={() => props.onUpdate(route.id)}>Записать черновик в этот маршрут</button>

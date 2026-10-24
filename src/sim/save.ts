@@ -100,6 +100,7 @@ function migrateSave(state: SimState, version: number): void {
         if (!Number.isInteger(ship.portArrived)) ship.portArrived = 0;
         if (!Number.isInteger(ship.portMoved)) ship.portMoved = 0;
         if (!Number.isInteger(ship.portAllowance)) ship.portAllowance = 0;
+        if (!Number.isInteger(ship.loadWait)) ship.loadWait = 0;
       }
     }
   }
@@ -252,7 +253,7 @@ function assertPlayable(state: SimState): void {
       throw new SaveError("Файл сохранения повреждён: учёт стоянки повреждён.");
     }
     if (!ship.supplyFrom || typeof ship.supplyFrom !== "object") throw new SaveError("Файл сохранения повреждён: у корабля нет учёта груза.");
-    if (!Number.isInteger(ship.portArrived) || ship.portArrived < 0 || !Number.isInteger(ship.portMoved) || ship.portMoved < 0 || !Number.isInteger(ship.portAllowance) || ship.portAllowance < 0) {
+    if (!Number.isInteger(ship.portArrived) || ship.portArrived < 0 || !Number.isInteger(ship.portMoved) || ship.portMoved < 0 || !Number.isInteger(ship.portAllowance) || ship.portAllowance < 0 || !Number.isInteger(ship.loadWait) || ship.loadWait < 0) {
       throw new SaveError("Файл сохранения повреждён: учёт порта корабля повреждён.");
     }
     normalizeSupply(ship);

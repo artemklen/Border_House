@@ -81,6 +81,11 @@ export function arrangePorts(state: SimState): void {
     }
     sortQueue(state, port);
     const open = effectiveBerths(port);
+    while (port.berth.length > open) {
+      const extra = port.berth.pop();
+      if (extra) port.queue.push(extra);
+    }
+    sortQueue(state, port);
     while (port.berth.length < open && port.queue.length > 0) {
       const next = port.queue.shift();
       if (next) port.berth.push(next);
@@ -126,10 +131,12 @@ export function releaseIdleBerths(state: SimState): void {
     for (const id of port.berth) {
       const ship = shipOf(state, id);
       if (!ship) continue;
-      if (ship.portMoved === 0 && ship.stopReason && berthIsStuck(ship.stopReason)) {
+      if (ship.stopReason && berthMustYield(state, world, ship)) {
         ship.portArrived = state.tick + 1;
         port.queue.push(ship.id);
-        ship.stopReason = `${ship.stopReason} Причал освобождён: действие сейчас невозможно, корабль встал в хвост очереди.`;
+        if (!reasonKeepsItsText(ship.stopReason)) {
+          ship.stopReason = `${ship.stopReason} Причал освобождён: действие сейчас невозможно, корабль встал в хвост очереди.`;
+        }
         continue;
       }
       keep.push(id);
@@ -160,26 +167,26 @@ export function recordPortDays(state: SimState): void {
 
 export function holdForLoad(ship: Ship, route: Route, capacity: number): boolean {
   if (route.minLoad <= 0) {
-    route.waitDays = 0;
+    ship.loadWait = 0;
     return false;
   }
   const dry = Math.max(0, ship.cargo.grain + ship.cargo.food + ship.cargo.ore + ship.cargo.alloys + ship.cargo.parts);
   if (dry >= route.minLoad) {
-    route.waitDays = 0;
+    ship.loadWait = 0;
     return false;
   }
   const conflict = route.minLoad > capacity - ship.cargo.fuel;
-  if (route.waitDays < route.maxWait) {
-    route.waitDays += 1;
+  if (ship.loadWait < route.maxWait) {
+    ship.loadWait += 1;
     ship.stopReason = conflict
-      ? `минимум ${route.minLoad} ед. не влезает рядом с топливом ${ship.cargo.fuel}. Ждём ${route.waitDays} из ${route.maxWait}, затем частичный рейс.`
-      : `ждём загрузку ${dry} из ${route.minLoad}. День ${route.waitDays} из ${route.maxWait}, затем частичный рейс.`;
+      ? `минимум ${route.minLoad} ед. не влезает рядом с топливом ${ship.cargo.fuel}. Ждём ${ship.loadWait} из ${route.maxWait}, затем частичный рейс.`
+      : `ждём загрузку ${dry} из ${route.minLoad}. День ${ship.loadWait} из ${route.maxWait}, затем частичный рейс.`;
     return true;
   }
   ship.stopReason = conflict
     ? `частичный рейс: минимум ${route.minLoad} не влезает рядом с топливом, ожидание ${route.maxWait} дн. истекло.`
     : `частичный рейс: загрузка ${dry} из ${route.minLoad}, ожидание ${route.maxWait} дн. истекло.`;
-  route.waitDays = 0;
+  ship.loadWait = 0;
   return false;
 }
 
@@ -244,6 +251,27 @@ function sortQueue(state: SimState, port: Port): void {
     const tickB = b?.portArrived ?? 0;
     if (tickA !== tickB) return tickA - tickB;
     return left < right ? -1 : left > right ? 1 : 0;
+  });
+}
+
+function reasonKeepsItsText(reason: string): boolean {
+  return reason.startsWith("нет топлива") || reason.startsWith("не хватает денег на транзитную") || reason.startsWith("нет доступа к следующей") || reason.startsWith("нет доступа: маршрут");
+}
+
+function berthMustYield(state: SimState, world: World, ship: Ship): boolean {
+  const reason = ship.stopReason ?? "";
+  if (reason.startsWith("нет топлива")) return fuelCanUseTheBerth(state, world);
+  if (reason.startsWith("не хватает денег на транзитную") || reason.startsWith("нет доступа к следующей") || reason.startsWith("нет доступа: маршрут")) return true;
+  return ship.portMoved === 0 && berthIsStuck(reason);
+}
+
+function fuelCanUseTheBerth(state: SimState, world: World): boolean {
+  return world.port.queue.some((id) => {
+    const other = shipOf(state, id);
+    if (!other) return false;
+    const route = other.routeId ? state.routes.find((item) => item.id === other.routeId) : undefined;
+    const stop = route?.stops.find((item) => item.worldId === world.id);
+    return Boolean(stop?.actions.some((action) => action.good === "fuel" && (action.mode === "unload" || action.mode === "sell" || action.mode === "load" || action.mode === "buy")));
   });
 }
 

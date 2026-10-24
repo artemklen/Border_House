@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dispatch } from "../src/sim/commands";
 import { createLogisticsScenario } from "../src/sim/diagnostics";
-import { createGame, placeShip } from "../src/sim/create";
+import { createGame, endowHouse, placeShip } from "../src/sim/create";
 import { createGoods, createCredits, destroyGoods, audit, hashState } from "../src/sim/mutate";
 import { deserialize, serialize } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
@@ -41,7 +41,7 @@ describe("порт", () => {
     const moved = first.cargo.ore + second.cargo.ore;
     expect(moved).toBe(70);
     expect([first.cargo.ore, second.cargo.ore].filter((qty) => qty === 0)).toHaveLength(1);
-    expect(ore.port.queue).toHaveLength(1);
+    expect(ore.port.berth.length).toBeLessThanOrEqual(1);
     expect(audit(state).errors).toEqual([]);
   });
 
@@ -254,5 +254,119 @@ describe("порт", () => {
     expect(world.port.project?.kind).toBe("berth");
     expect(house.flow.construction).toBeGreaterThanOrEqual(2400);
     expect(audit(state).errors).toEqual([]);
+  });
+
+  it("корабль без топлива отпускает причал", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    const stuck = state.ships[0];
+    const moving = placeShip(state, house.id, ore, "freighter", 40);
+    destroyGoods(stuck.cargo, state.accounts, "fuel", stuck.cargo.fuel);
+    stuck.worldId = ore.id;
+    stuck.status = "docked";
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Без топлива",
+      shipId: stuck.id,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [{ good: "ore", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+      ],
+    });
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "С топливом",
+      shipId: moving.id,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "fuel", mode: "load", amount: 1, price: 0, keep: 0 }, { good: "ore", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [{ good: "ore", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+      ],
+    });
+    runTicks(state, 2);
+    expect(moving.cargo.ore).toBe(10);
+    expect(ore.port.berth).not.toContain(stuck.id);
+  });
+
+  it("два корабля на одном маршруте ждут минимум по отдельности", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const ore = state.worlds.find((world) => world.id === "l-ore")!;
+    ore.port.berthLevel = 1;
+    destroyGoods(ore.stock, state.accounts, "ore", ore.stock.ore - 5);
+    const first = state.ships[0];
+    const second = placeShip(state, house.id, ore, "freighter", 40);
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Ждать вместе",
+      shipId: first.id,
+      minLoad: 20,
+      maxWait: 2,
+      stops: [
+        { worldId: "l-ore", actions: [{ good: "ore", mode: "load", amount: 5, price: 0, keep: 0 }] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    dispatch(state, { type: "assignShip", shipId: second.id, routeId: first.routeId });
+    runTicks(state, 2);
+    expect(first.status).toBe("docked");
+    expect(second.status).toBe("docked");
+    expect(first.loadWait).toBe(2);
+    expect(second.loadWait).toBe(2);
+  });
+
+  it("неоплаченное содержание оставляет один причал", () => {
+    const state = createLogisticsScenario();
+    const rich = state.houses[0];
+    const poor = endowHouse(state, { name: "Пустая казна", color: "#888", crest: "ПК", profile: "merchant", player: false, credits: 0 });
+    poor.capitalId = "l-dock";
+    const dock = state.worlds.find((world) => world.id === "l-dock")!;
+    dock.ownerId = poor.id;
+    dock.tariffBps = 0;
+    dock.port.berthLevel = 1;
+    dock.capacity = 4000;
+    createGoods(dock.stock, state.accounts, "food", 40);
+    const first = placeShip(state, rich.id, dock, "skiff", 4);
+    const second = placeShip(state, rich.id, dock, "skiff", 4);
+    state.ships[0].routeId = null;
+    for (const ship of [first, second]) {
+      dispatch(state, {
+        type: "createRoute",
+        houseId: rich.id,
+        name: `Покупка ${ship.id}`,
+        shipId: ship.id,
+        stops: [
+          { worldId: "l-dock", actions: [{ good: "food", mode: "buy", amount: 10, price: 100, keep: 0 }] },
+          { worldId: "l-ore", actions: [] },
+        ],
+      });
+    }
+    runTicks(state, 1);
+    expect(dock.port.upkeepPaid).toBe(false);
+    expect(first.cargo.food + second.cargo.food).toBe(10);
+    expect([first, second].filter((ship) => ship.cargo.food === 0 && ship.status !== "transit")).toHaveLength(1);
+  });
+
+  it("правка маршрута записывает минимум загрузки", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const created = dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Черновик",
+      stops: [
+        { worldId: "l-ore", actions: [] },
+        { worldId: "l-side", actions: [] },
+      ],
+    });
+    expect(created.ok).toBe(true);
+    const route = state.routes[0];
+    const updated = dispatch(state, { type: "updateRoute", routeId: route.id, name: route.name, stops: route.stops, minLoad: 15, maxWait: 4 });
+    expect(updated.ok).toBe(true);
+    expect(route.minLoad).toBe(15);
+    expect(route.maxWait).toBe(4);
   });
 });

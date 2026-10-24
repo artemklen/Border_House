@@ -214,6 +214,8 @@ export interface Ship {
   portArrived: number;
   portMoved: number;
   portAllowance: number;
+  /** Сколько дней этот корабль уже ждёт минимум загрузки на текущей стоянке. */
+  loadWait: number;
 }
 
 export interface Treaty {
@@ -320,7 +322,7 @@ export type Command =
   | { type: "toggleBuilding"; houseId: string; buildingId: string; enabled: boolean }
   | { type: "buildShip"; houseId: string; worldId: string; classId: ShipClassId }
   | { type: "createRoute"; houseId: string; name: string; stops: RouteStop[]; shipId?: string; autoFuel?: boolean; returnRouteId?: string; minLoad?: number; maxWait?: number }
-  | { type: "updateRoute"; routeId: string; name: string; stops: RouteStop[] }
+  | { type: "updateRoute"; routeId: string; name: string; stops: RouteStop[]; minLoad?: number; maxWait?: number }
   | { type: "pauseRoute"; routeId: string; paused: boolean }
   | { type: "assignShip"; shipId: string; routeId: string | null }
   | { type: "setTariff"; houseId: string; worldId: string; tariffBps: number }
