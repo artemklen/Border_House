@@ -316,21 +316,21 @@ export function App() {
               </div>
             </div>
             <aside>
-              <LessonCard
-                sim={sim}
-                onSkip={() => act({ type: "skipTutorial" })}
-                onResume={() => act({ type: "resumeTutorial" })}
-                onFocus={(worldId) => {
-                  setSelected({ kind: "world", id: worldId });
-                  setTab("world");
-                }}
-              />
               <div className="tabs" role="tablist">
                 {TABS.map(([id, label]) => (
                   <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>
                 ))}
               </div>
               <div className="panel" role="tabpanel">
+                <LessonCard
+                  sim={sim}
+                  onSkip={() => act({ type: "skipTutorial" })}
+                  onResume={() => act({ type: "resumeTutorial" })}
+                  onFocus={(worldId) => {
+                    setSelected({ kind: "world", id: worldId });
+                    setTab("world");
+                  }}
+                />
                 {tab === "world" ? (
                   <WorldPanel
                     sim={sim}

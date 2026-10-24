@@ -35,6 +35,31 @@ describe("обучение", () => {
     const saved = deserialize(serialize(state));
     expect(saved.tutorial.skipped).toBe(false);
     expect(lessonViews(saved).find((lesson) => lesson.id === "supply")?.done).toBe(true);
+    const closed = createGame({ seed: 4, scenario: "base" });
+    const buyer = closed.houses.find((house) => !house.player)!;
+    const seller = closed.houses.find((house) => house.player)!;
+    closed.contracts.push({
+      id: "k-empty",
+      sellerId: seller.id,
+      buyerId: buyer.id,
+      good: "food",
+      worldId: seller.capitalId ?? closed.worlds[0].id,
+      qtyPerWindow: 4,
+      windows: 2,
+      price: 8,
+      shortfall: 4,
+      deposit: 0,
+      status: "completed",
+      windowIndex: 1,
+      windowDays: 0,
+      delivered: 0,
+      paidWindow: 0,
+      buyerReserve: 0,
+      history: [{ window: 0, delivered: 0, paid: 0, penalty: 0 }, { window: 1, delivered: 0, paid: 0, penalty: 0 }],
+      trades: [],
+      note: "закрыт без поставки",
+    });
+    expect(lessonViews(closed).find((lesson) => lesson.id === "contract")?.done).toBe(false);
     mustAudit(state);
   });
 
@@ -120,6 +145,29 @@ describe("сценарии кампании", () => {
     expect(ship.traveled >= 0).toBe(true);
     mustAudit(forged);
     mustAudit(fed);
+    expect(campaignBrief(forged)?.measures.find((item) => item.id === "path")?.done).toBe(true);
+  });
+
+  it("сосед отвечает на предложение, когда хозяйственный ИИ выключен", () => {
+    const state = createIndustryDependenceScenario();
+    const player = state.houses.find((house) => house.player)!;
+    const buyer = state.houses.find((house) => !house.player)!;
+    expect(state.aiEnabled).toBe(false);
+    expect(dispatch(state, {
+      type: "proposeContract",
+      sellerId: player.id,
+      buyerId: buyer.id,
+      good: "ore",
+      worldId: buyer.capitalId ?? "i-barn",
+      qtyPerWindow: 4,
+      windows: 2,
+      price: 8,
+      shortfall: 1,
+      deposit: 16,
+    }).ok).toBe(true);
+    expect(state.contracts.at(-1)?.status).toBe("proposed");
+    runTicks(state, 1);
+    expect(state.contracts.at(-1)?.status).not.toBe("proposed");
   });
 
   it("каждый новый сценарий держит инварианты 3600 дней", () => {

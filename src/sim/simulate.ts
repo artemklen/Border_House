@@ -1,4 +1,4 @@
-import { foodReturnFuel, foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
+import { answerNegotiations, foodReturnFuel, foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
 import { advanceSituations, dropTreatyGrants } from "./politics";
 import { payContractTakes, planSale, settleContractWindows } from "./contracts";
 import { advanceLoadWaits, advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
@@ -48,6 +48,7 @@ export function tick(state: SimState): void {
   driftLoyalty(state);
   inherit(state);
   advanceSituations(state);
+  answerNegotiations(state);
   if (state.aiEnabled && state.rules.aiInterval > 0 && state.tick % state.rules.aiInterval === 0) planAi(state);
   rollAccounts(state);
 }

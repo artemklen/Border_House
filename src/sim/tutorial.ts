@@ -134,7 +134,7 @@ function flowSum(flow: House["flow"]): number {
 }
 
 function contractMoved(contract: SimState["contracts"][number]): boolean {
-  return contract.delivered > 0 || contract.history.some((item) => item.delivered > 0) || contract.status === "completed";
+  return contract.delivered > 0 || contract.history.some((item) => item.delivered > 0);
 }
 
 function developmentDetail(world: World): string {

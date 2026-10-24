@@ -17,11 +17,18 @@ const INPUT_BUILDING: Record<GoodId, BuildingKind> = {
   fuel: "fuelwell",
 };
 
-export function planAi(state: SimState): void {
+export function answerNegotiations(state: SimState): void {
   for (const house of byId(state.houses)) {
     if (house.player) continue;
     answerProposals(state, house);
     answerContracts(state, house);
+  }
+}
+
+export function planAi(state: SimState): void {
+  answerNegotiations(state);
+  for (const house of byId(state.houses)) {
+    if (house.player) continue;
     const portPlan = portIdea(state, house.id);
     const plans = [...(portPlan ? [portPlan] : []), ...ideas(state, house)];
     let applied = 0;

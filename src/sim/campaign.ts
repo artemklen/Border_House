@@ -111,10 +111,10 @@ export function createCrowdedHarborScenario(seed = 22): SimState {
       houseId: owner.id,
       name: title,
       shipId: ship.id,
-      minLoad: 40,
-      maxWait: 80,
+      minLoad: 20,
+      maxWait: 30,
       stops: [
-        { worldId: port.id, actions: [{ good: "food", mode: "load", amount: 20, price: 0, keep: 0 }] },
+        { worldId: port.id, actions: [{ good: "food", mode: "buy", amount: 20, price: 80, keep: 0 }] },
         { worldId: homeId, actions: [{ good: "food", mode: "unload", amount: 20, price: 0, keep: 0 }] },
       ],
     });
@@ -136,7 +136,7 @@ export function createIndustryDependenceScenario(seed = 23): SimState {
     ownerId: player.id,
     population: 40,
     popMoneyPerCapita: 4,
-    stock: { ore: 40, food: 10, parts: 16, fuel: 20 },
+    stock: { ore: 40, food: 10, parts: 30, fuel: 20 },
     deposits: { ore: 400 },
   });
   const barn = endowWorld(state, { id: "i-barn", name: "Нива", specialty: "еда", x: 180, y: 20, ownerId: pantry.id, population: 50, popMoneyPerCapita: 3, stock: { food: 120, grain: 80 } });
@@ -157,10 +157,16 @@ export function campaignBrief(state: SimState): ScenarioBrief | null {
   return null;
 }
 
+function countedDeliveries(contract: { status: string; delivered: number; history: Array<{ delivered: number }> }): number {
+  const history = contract.history.reduce((sum, item) => sum + item.delivered, 0);
+  if (contract.status === "completed" || contract.status === "broken" || contract.status === "cancelled") return history;
+  return history + contract.delivered;
+}
+
 function borderBrief(state: SimState): ScenarioBrief {
   const player = state.houses.find((house) => house.player);
   const contract = state.contracts.find((item) => item.sellerId === player?.id);
-  const delivered = (contract?.delivered ?? 0) + (contract?.history.reduce((sum, item) => sum + item.delivered, 0) ?? 0);
+  const delivered = contract ? countedDeliveries(contract) : 0;
   const capital = state.worlds.find((world) => world.id === player?.capitalId);
   const cover = capital && player ? foodCover(capital.population, capital.stock.food, state.rules.foodPer100) : 0;
   const toll = state.routes.filter((route) => route.houseId === player?.id).reduce((sum, route) => sum + route.cost + route.lastCost, 0);
@@ -201,7 +207,7 @@ function industryBrief(state: SimState): ScenarioBrief {
   const mine = state.worlds.find((world) => world.id === "i-mine");
   const player = state.houses.find((house) => house.player);
   const cover = mine && player ? foodCover(mine.population, mine.stock.food, state.rules.foodPer100) : 0;
-  const path = mine?.development.path === "industrial" && (mine.development.level > 0 || mine.development.project);
+  const path = Boolean(mine && ((mine.development.path === "industrial" && mine.development.level > 0) || mine.development.project?.path === "industrial"));
   const alloys = (mine?.produced.alloys ?? 0) + (mine?.lastProduced.alloys ?? 0) + (mine?.stock.alloys ?? 0);
   const partners = player ? Object.values(player.tradeWith).filter((value) => value > 0).length : 0;
   return {
