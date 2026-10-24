@@ -1,6 +1,6 @@
 import { treatyText } from "./commands";
 import { SHIP_CLASSES } from "./config";
-import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
+import { freeBay, GOOD_NAME, type GoodId } from "./goods";
 import {
   accessDenied,
   availableCredits,
@@ -674,7 +674,7 @@ function liveShip(state: SimState, ownerId: string, situation: Situation): Ship 
       ship.worldId === worldId &&
       ship.status !== "transit" &&
       ship.status !== "building" &&
-      SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) >= situation.qty &&
+      freeBay(SHIP_CLASSES[ship.classId].capacity, ship.cargo, situation.good) >= situation.qty &&
       world.port.berth.includes(ship.id) &&
       ship.portAllowance - ship.portMoved >= situation.qty,
   );
@@ -691,7 +691,7 @@ function cargoPurchaseBlock(state: SimState, buyer: House, seller: House | undef
   const portBlock = portCargoBlock(world, ship, situation.qty);
   if (portBlock) return portBlock;
   if (world.stock[situation.good] < situation.qty) return `на складе меньше ${situation.qty} ${GOOD_NAME[situation.good]}`;
-  if (SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) < situation.qty) return "в трюме нет места";
+  if (freeBay(SHIP_CLASSES[ship.classId].capacity, ship.cargo, situation.good) < situation.qty) return situation.good === "fuel" ? "в баке нет места" : "в трюме нет места";
   if (availableCredits(buyer) < situation.cost) return `нужно ${situation.cost} свободных кредитов`;
   return null;
 }
@@ -721,7 +721,7 @@ function visitorSaleBlock(state: SimState, seller: House, buyer: House | undefin
   const portBlock = portCargoBlock(world, ship, situation.qty);
   if (portBlock) return portBlock;
   if (world.stock.food < situation.qty) return `на складе меньше ${situation.qty} продовольствия`;
-  if (SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) < situation.qty) return "в трюме гостя нет места";
+  if (freeBay(SHIP_CLASSES[ship.classId].capacity, ship.cargo, "food") < situation.qty) return "в трюме гостя нет места";
   if (availableCredits(buyer) < situation.cost) return "у гостя нет денег на продовольствие";
   return null;
 }

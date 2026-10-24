@@ -4,7 +4,7 @@ import { situationDecision } from "./politics";
 import { developmentIdea, transitFuelDiscount } from "./specialty";
 import { judgeContract } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
-import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
+import { freeBay, GOOD_NAME, type GoodId } from "./goods";
 import { availableCredits, byId, distance, foodCover, foodNeed, houseOf, noteAi, worldOf } from "./mutate";
 import type { BuildingKind, Command, House, Route, RouteStop, Ship, SimState, Treaty, World } from "./types";
 
@@ -203,7 +203,7 @@ function ideas(state: SimState, house: House): Array<{ command: Command; because
     const here = worldOf(state, dry.worldId);
     const reachable = here ? reachableFuelWorld(state, dry, here) : undefined;
     const reserve = 8;
-    const room = here ? SHIP_CLASSES[dry.classId].capacity - sumGoods(dry.cargo) : 0;
+    const room = here ? freeBay(SHIP_CLASSES[dry.classId].capacity, dry.cargo, "fuel") : 0;
     const portOwner = here?.ownerId ? houseOf(state, here.ownerId) : undefined;
     const localOpen = Boolean(portOwner) && (here?.ownerId === house.id || portOwner?.embargo[house.id] !== true);
     const gained = here && localOpen ? Math.max(0, Math.min(24, here.stock.fuel - reserve, room)) : 0;
@@ -315,7 +315,7 @@ function foodStops(house: House, ship: Ship, source: World, dest: World): RouteS
     ? { good: "food" as const, mode: "unload" as const, amount: 40, price: 0, keep: 0 }
     : { good: "food" as const, mode: "sell" as const, amount: 36, price: 1, keep: 0 };
   const voyage = foodRoundTrip(ship, source, dest);
-  const free = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
+  const free = freeBay(SHIP_CLASSES[ship.classId].capacity, ship.cargo, "fuel");
   const amount = Math.max(0, Math.min(voyage - ship.cargo.fuel, free));
   const actions: RouteStop["actions"] = [];
   if (amount > 0) {
@@ -457,7 +457,7 @@ function fuelForLeg(ship: Ship, from: World, to: World): number {
 
 function reachableFuelWorld(state: SimState, ship: Ship, here: World): World | undefined {
   const reserve = 8;
-  const room = SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo);
+  const room = freeBay(SHIP_CLASSES[ship.classId].capacity, ship.cargo, "fuel");
   const gained = here.ownerId && here.stock.fuel > reserve ? Math.max(0, Math.min(24, here.stock.fuel - reserve, room)) : 0;
   const aboard = ship.cargo.fuel + gained;
   return byId(state.worlds)

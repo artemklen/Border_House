@@ -91,7 +91,7 @@ export function explainShip(state: SimState, shipId: string): string {
     }
   }
   const reason = ship.stopReason ? ` Причина остановки: ${ship.stopReason}.` : "";
-  return `${ship.name}, ${shipClass.name}. Трюм ${shipClass.capacity} ед., скорость ${shipClass.speed} ед./день, содержание ${shipClass.upkeep} кред./день. Сейчас ${where}.${reason}${nextCost} Топливо списывается в начале перегона, груз остаётся на корабле, если рейс не начался.`;
+  return `${ship.name}, ${shipClass.name}. Трюм ${shipClass.capacity} ед., бак ${shipClass.capacity} ед. Топливо в баке и трюм не занимает. Скорость ${shipClass.speed} ед./день, содержание ${shipClass.upkeep} кред./день. Сейчас ${where}.${reason}${nextCost} Топливо списывается в начале перегона, груз остаётся на корабле, если рейс не начался.`;
 }
 
 export interface Bottleneck {

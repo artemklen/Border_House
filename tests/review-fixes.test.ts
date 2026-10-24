@@ -1881,7 +1881,7 @@ describe("замечания ревью", () => {
     ship.fromId = "w-vega";
     ship.tollWorldId = "w-vega";
     ship.status = "docked";
-    ship.cargo.food = 45;
+    ship.cargo.food = 60;
     ship.cargo.fuel = 15;
     market.stock.food = 100;
     market.prices.food = 10;
@@ -1902,7 +1902,7 @@ describe("замечания ревью", () => {
       ],
     });
     runTicks(state, 1);
-    expect(ship.cargo.food).toBe(55);
+    expect(ship.cargo.food).toBe(70);
     expect(ship.stopReason).toBe("не хватает денег на транзитную пошлину");
     player.credits = 100000;
     runTicks(state, 1);
@@ -2073,7 +2073,8 @@ describe("замечания ревью", () => {
     ship.tollWorldId = "w-vega";
     ship.status = "docked";
     ship.cargo.fuel = 20;
-    ship.cargo.food = 0;
+    ship.cargo.food = 20;
+    state.accounts.goodsCreated.food += 20;
     market.stock.food = 200;
     market.prices.food = 10;
     player.credits = 510;
@@ -2088,7 +2089,7 @@ describe("замечания ревью", () => {
       ],
     });
     runTicks(state, 1);
-    expect(ship.cargo.food).toBe(50);
+    expect(ship.cargo.food).toBe(70);
     expect(ship.status).toBe("transit");
     expect(ship.worldId).toBeNull();
   });
@@ -2229,7 +2230,7 @@ describe("замечания ревью", () => {
     ship.fromId = "w-vega";
     ship.tollWorldId = "w-vega";
     ship.status = "docked";
-    ship.cargo.fuel = 60;
+    ship.cargo.fuel = 70;
     ship.cargo.food = 0;
     market.stock.food = 40;
     market.stock.fuel = 40;
@@ -2254,7 +2255,7 @@ describe("замечания ревью", () => {
     });
     runTicks(state, 1);
     expect(ship.cargo.food).toBe(10);
-    expect(ship.cargo.fuel).toBe(45);
+    expect(ship.cargo.fuel).toBe(55);
     expect(ship.status).toBe("transit");
   });
 
@@ -2278,7 +2279,9 @@ describe("замечания ревью", () => {
     ship.fromId = "w-vega";
     ship.tollWorldId = "w-vega";
     ship.status = "docked";
-    ship.cargo.fuel = 70;
+    ship.cargo.fuel = 20;
+    ship.cargo.food = 70;
+    state.accounts.goodsCreated.food += 70;
     market.stock.food = 40;
     market.prices.food = 10;
     player.credits = 5;
@@ -2293,7 +2296,7 @@ describe("замечания ревью", () => {
       ],
     });
     runTicks(state, 1);
-    expect(ship.cargo.food).toBe(0);
+    expect(ship.cargo.food).toBe(70);
     expect(ship.status).toBe("transit");
   });
 

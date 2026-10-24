@@ -26,6 +26,16 @@ export function sumGoods(goods: Goods): number {
   return total;
 }
 
+/** Груз без топлива. Топливо лежит в баке того же размера и трюм не занимает. */
+export function holdLoad(goods: Goods): number {
+  return sumGoods(goods) - goods.fuel;
+}
+
+export function freeBay(capacity: number, goods: Goods, good: GoodId): number {
+  const used = good === "fuel" ? goods.fuel : holdLoad(goods);
+  return Math.max(0, capacity - used);
+}
+
 export function addGoods(target: Goods, good: GoodId, amount: number): void {
   target[good] += amount;
 }

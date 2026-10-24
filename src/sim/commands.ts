@@ -138,7 +138,7 @@ export function planShip(state: SimState, houseId: string, worldId: string, clas
     ok: true,
     reason: "",
     lines: [
-      `${shipClass.name}: трюм ${shipClass.capacity} ед., скорость ${shipClass.speed} ед./день, топливо ${shipClass.fuelPer1000} ед. на 1000 ед. пути, содержание ${shipClass.upkeep} кред./день.`,
+      `${shipClass.name}: трюм ${shipClass.capacity} ед., бак ${shipClass.capacity} ед. Топливо в баке и трюм не занимает. Скорость ${shipClass.speed} ед./день, топливо ${shipClass.fuelPer1000} ед. на 1000 ед. пути, содержание ${shipClass.upkeep} кред./день.`,
       `Списать ${shipClass.parts} комплектующих и передать ${shipClass.credits} кредитов населению.`,
       `Корабль будет готов через ${shipClass.days} дн. и останется в «${world.name}», пока ему не дадут маршрут.`,
     ],
@@ -411,7 +411,7 @@ function colonize(state: SimState, houseId: string, shipId: string, worldId: str
   return ok("корабль везёт колониальный набор");
 }
 
-/** Подгоняет маршрут колонии под текущий трюм: лишнее сгружается, недостающее добирается, топливо оставляет место под набор. */
+/** Подгоняет маршрут колонии под текущий трюм: лишнее сгружается, недостающее добирается. Топливо лежит в баке и место набора не занимает. */
 export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
   if (ship.mission?.type !== "colonize" || !ship.worldId || ship.worldId === ship.mission.worldId) return ok();
   const target = worldOf(state, ship.mission.worldId);

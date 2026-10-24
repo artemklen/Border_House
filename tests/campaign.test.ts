@@ -90,8 +90,10 @@ describe("сценарии кампании", () => {
     const paidFuelEach = paid.fuel / paid.delivered;
     const aroundFuelEach = around.fuel / around.delivered;
     expect(paidTollEach, `toll ${paid.toll}/${around.toll} fuel ${paid.fuel}/${around.fuel} delivered ${paid.delivered}/${around.delivered}`).toBeGreaterThan(aroundTollEach);
-    expect(aroundFuelEach).toBeGreaterThan(paidFuelEach);
-    expect(paid.delivered === around.delivered && paid.credits === around.credits).toBe(false);
+    expect(paid.delivered).toBe(around.delivered);
+    expect(paid.fuel).toBeGreaterThan(around.fuel);
+    expect(around.cover).toBeGreaterThan(paid.cover);
+    expect(aroundFuelEach).toBeLessThan(paidFuelEach);
     mustAudit(paid.state);
     mustAudit(around.state);
   });

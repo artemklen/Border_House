@@ -1,3 +1,4 @@
+import { holdLoad } from "./goods";
 import { destroyGoods, houseOf, moveCredits, note, shipOf, sinkCredits, worldOf } from "./mutate";
 import { transitThroughputBonus } from "./specialty";
 import type { CommandResult, Port, Route, Ship, SimState, World } from "./types";
@@ -199,21 +200,21 @@ export function holdForLoad(ship: Ship, route: Route, capacity: number): "open" 
     ship.loadWait = 0;
     return "open";
   }
-  const dry = Math.max(0, ship.cargo.grain + ship.cargo.food + ship.cargo.ore + ship.cargo.alloys + ship.cargo.parts);
+  const dry = holdLoad(ship.cargo);
   if (dry >= route.minLoad) {
     ship.loadWait = 0;
     return "met";
   }
-  const conflict = route.minLoad > capacity - ship.cargo.fuel;
+  const conflict = route.minLoad > capacity - dry;
   if (ship.loadWait < route.maxWait) {
     const day = ship.loadWait + 1;
     ship.stopReason = conflict
-      ? `минимум ${route.minLoad} ед. не влезает рядом с топливом ${ship.cargo.fuel}. Ждём ${day} из ${route.maxWait}, затем частичный рейс.`
+      ? `минимум ${route.minLoad} ед. не влезает в трюм. Ждём ${day} из ${route.maxWait}, затем частичный рейс.`
       : `ждём загрузку ${dry} из ${route.minLoad}. День ${day} из ${route.maxWait}, затем частичный рейс.`;
     return "waiting";
   }
   ship.stopReason = conflict
-    ? `частичный рейс: минимум ${route.minLoad} не влезает рядом с топливом, ожидание ${route.maxWait} дн. истекло.`
+    ? `частичный рейс: минимум ${route.minLoad} не влезает в трюм, ожидание ${route.maxWait} дн. истекло.`
     : `частичный рейс: загрузка ${dry} из ${route.minLoad}, ожидание ${route.maxWait} дн. истекло.`;
   return "expired";
 }
