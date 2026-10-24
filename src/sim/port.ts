@@ -37,7 +37,7 @@ export function portEstimate(port: Port): string {
   const berths = effectiveBerths(port);
   const throughput = effectiveThroughput(port);
   const berthWord = berths === 1 ? "причал" : "причала";
-  return `Оценка пропускной способности: ${berths} ${berthWord}, до ${throughput} ед. груза на причал за день. Общий поток не растёт линейно от длины очереди. Складская ёмкость мира — отдельный предел, расширение порта её не увеличивает.`;
+  return `Оценка пропускной способности: ${berths} ${berthWord} делят общий бюджет ${throughput} ед. груза в день. Второй причал не удваивает этот бюджет, его поднимает только ускорение. Очередь бюджет не увеличивает. Склад — отдельный предел.`;
 }
 
 export function advancePorts(state: SimState): void {
@@ -275,6 +275,7 @@ function berthIsStuck(reason: string): boolean {
     || reason.startsWith("цена ")
     || reason.startsWith("нет товара")
     || reason.startsWith("нет места")
+    || reason.startsWith("в трюме нет места")
     || reason.startsWith("не хватает денег")
     || reason.startsWith("нет доступа");
 }

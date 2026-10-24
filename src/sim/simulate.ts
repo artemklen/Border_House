@@ -314,7 +314,8 @@ function serviceDock(state: SimState, ship: Ship): void {
   const pickup = here?.actions.some((action) => action.good !== "fuel" && (action.mode === "load" || action.mode === "buy"));
   if (routeNow && !pickup) ship.loadWait = 0;
   if (routeNow && pickup && holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity)) return;
-  if (hold && !(pickup && ship.portMoved === 0)) return;
+  const waitExpired = Boolean(routeNow && pickup && routeNow.minLoad > 0 && routeNow.maxWait > 0 && ship.portMoved === 0);
+  if (hold && !waitExpired) return;
   if (routeNow) depart(state, ship, routeNow);
 }
 

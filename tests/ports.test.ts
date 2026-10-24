@@ -485,4 +485,31 @@ describe("порт", () => {
     expect(ship.status).toBe("transit");
     expect(ship.cargo.ore).toBe(0);
   });
+
+  it("полный склад не отпускает корабль, если на той же стоянке есть погрузка", () => {
+    const state = createLogisticsScenario();
+    const house = state.houses[0];
+    const dock = state.worlds.find((world) => world.id === "l-dock")!;
+    createGoods(dock.stock, state.accounts, "ore", dock.capacity - Object.values(dock.stock).reduce((sum, value) => sum + value, 0));
+    const ship = state.ships[0];
+    createGoods(ship.cargo, state.accounts, "ore", 10);
+    ship.worldId = dock.id;
+    ship.status = "docked";
+    dispatch(state, {
+      type: "createRoute",
+      houseId: house.id,
+      name: "Смешанная стоянка",
+      shipId: ship.id,
+      stops: [
+        { worldId: "l-dock", actions: [
+          { good: "ore", mode: "unload", amount: 10, price: 0, keep: 0 },
+          { good: "food", mode: "load", amount: 10, price: 0, keep: 0 },
+        ] },
+        { worldId: "l-ore", actions: [] },
+      ],
+    });
+    runTicks(state, 1);
+    expect(ship.status).toBe("docked");
+    expect(ship.cargo.ore).toBe(10);
+  });
 });
