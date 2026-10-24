@@ -14,6 +14,7 @@ import { PATH_LABEL, developmentBlock, developmentText, levelCost, transitThroug
 import type { DevelopmentPath, SituationChoice } from "../sim/types";
 import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
+import { classifyHotkeyTarget, releaseClaimedSpace, routeTimeHotkey, type FocusFrom } from "./hotkeys";
 import { lessonViews } from "../sim/tutorial";
 import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
 import {
@@ -145,18 +146,45 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLButtonElement || event.target instanceof HTMLAnchorElement) return;
-      if (event.code === "Space") {
-        event.preventDefault();
-        togglePause();
-      }
-      if (event.key === "1") changeSpeed(1);
-      if (event.key === "2") changeSpeed(2);
-      if (event.key === "3") changeSpeed(3);
+    const focusFrom: { current: FocusFrom } = { current: "keyboard" };
+    const spaceClaimed = { current: false };
+    const onPointerDown = () => {
+      focusFrom.current = "pointer";
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab") focusFrom.current = "keyboard";
+      const route = routeTimeHotkey({
+        code: event.code,
+        key: event.key,
+        repeat: event.repeat,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        composing: event.isComposing,
+        target: classifyHotkeyTarget(event.target),
+        focusFrom: focusFrom.current,
+        dialogOpen: Boolean(document.querySelector("dialog[open]")),
+      });
+      if (route.preventDefault) event.preventDefault();
+      if (event.code === "Space" && route.preventDefault) spaceClaimed.current = true;
+      if (route.action === "toggle-pause") togglePause();
+      if (route.action === "speed-1") changeSpeed(1);
+      if (route.action === "speed-2") changeSpeed(2);
+      if (route.action === "speed-3") changeSpeed(3);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      const release = releaseClaimedSpace(event.code, spaceClaimed.current);
+      spaceClaimed.current = release.claimed;
+      if (release.preventDefault) event.preventDefault();
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   }, []);
 
   function togglePause() {
