@@ -11,6 +11,7 @@ import {
   note,
   pairRelation,
   rememberSupply,
+  rememberTrade,
   routeOf,
   serial,
   shiftRelation,
@@ -82,8 +83,8 @@ export function choicePreview(situation: Situation, choice: SituationChoice): st
   }
   if (situation.kind === "foodDependence" && choice === "yield") {
     return [
-      `Договор снабжения: ${situation.qty} ${GOOD_NAME[situation.good]} за окно, ${situation.days} дн., пошлина договора ${situation.tariffBps / 100}%.`,
-      "Еда не появляется из события: её привезёт рейс. Отношения +6.",
+      `Договор снабжения: поставщик везёт ${situation.qty} ${GOOD_NAME[situation.good]} за окно, ${situation.days} дн., пошлина договора ${situation.tariffBps / 100}%.`,
+      "Еда не появляется из события: её привезёт рейс. Отношения +6. Если договор уже действует, второй не открывается и эмбарго не вводится.",
       term,
     ];
   }
@@ -230,7 +231,6 @@ function situationBlock(state: SimState, situation: Situation, choice: Situation
   }
   if (situation.kind === "foodDependence" && choice === "yield") {
     if (!other) return "нет контрагента";
-    if (activeTreaty(state, house.id, other.id)) return "с этим домом уже есть действующий договор";
   }
   if (situation.kind === "foodDependence" && choice === "pay") {
     return cargoPurchaseBlock(state, house, other, situation);
@@ -273,11 +273,15 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
     return null;
   }
   if (situation.kind === "foodDependence" && choice === "yield" && other) {
+    if (activeTreaty(state, house.id, other.id)) {
+      note(state, house.id, `${SITUATION_LABEL[situation.kind]}: уступка. Договор с ${other.name} уже действует, второй не открыт. Эмбарго не введено, казна и склады на месте.`);
+      return null;
+    }
     state.treaties.push({
       id: serial(state, "t"),
       kind: "supply",
-      proposerId: house.id,
-      targetId: other.id,
+      proposerId: other.id,
+      targetId: house.id,
       status: "active",
       startTick: state.tick,
       endTick: state.tick + situation.days,
@@ -569,12 +573,34 @@ function pay(state: SimState, from: House, to: House, amount: number): boolean {
   return true;
 }
 
+function recordSale(state: SimState, buyer: House, seller: House, amount: number): boolean {
+  if (!moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, amount)) return false;
+  buyer.flow.purchases += amount;
+  seller.flow.sales += amount;
+  rememberTrade(buyer, seller, amount);
+  return true;
+}
+
+function liveShip(state: SimState, ownerId: string, situation: Situation): Ship | undefined {
+  const worldId = situation.worldId;
+  if (!worldId) return undefined;
+  const fits = (ship: Ship) =>
+    ship.houseId === ownerId &&
+    ship.worldId === worldId &&
+    ship.status !== "transit" &&
+    ship.status !== "building" &&
+    SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) >= situation.qty;
+  const pinned = situation.shipId ? shipOf(state, situation.shipId) : undefined;
+  if (pinned && fits(pinned)) return pinned;
+  return state.ships.find(fits);
+}
+
 function cargoPurchaseBlock(state: SimState, buyer: House, seller: House | undefined, situation: Situation): string | null {
   if (!seller) return "нет продавца";
   const world = worldOf(state, situation.worldId);
-  const ship = situation.shipId ? shipOf(state, situation.shipId) : undefined;
+  const ship = liveShip(state, buyer.id, situation);
   if (!world || world.ownerId !== seller.id) return "склад продавца недоступен";
-  if (!ship || ship.houseId !== buyer.id || ship.worldId !== world.id || ship.status === "transit" || ship.status === "building") return "свой корабль уже не стоит у склада";
+  if (!ship) return "свой корабль уже не стоит у склада";
   if (world.stock[situation.good] < situation.qty) return `на складе меньше ${situation.qty} ${GOOD_NAME[situation.good]}`;
   if (SHIP_CLASSES[ship.classId].capacity - sumGoods(ship.cargo) < situation.qty) return "в трюме нет места";
   if (availableCredits(buyer) < situation.cost) return `нужно ${situation.cost} свободных кредитов`;
@@ -585,8 +611,8 @@ function moveCargoPurchase(state: SimState, buyer: House, seller: House | undefi
   const blocked = cargoPurchaseBlock(state, buyer, seller, situation);
   if (blocked || !seller) return blocked ?? "нет продавца";
   const world = worldOf(state, situation.worldId)!;
-  const ship = shipOf(state, situation.shipId ?? "")!;
-  if (!pay(state, buyer, seller, situation.cost)) return `нужно ${situation.cost} свободных кредитов`;
+  const ship = liveShip(state, buyer.id, situation)!;
+  if (!recordSale(state, buyer, seller, situation.cost)) return `нужно ${situation.cost} свободных кредитов`;
   destroyGoods(world.stock, state.accounts, situation.good, situation.qty);
   createGoods(ship.cargo, state.accounts, situation.good, situation.qty);
   rememberSupply(ship, situation.good, seller.id, situation.qty);
@@ -596,7 +622,7 @@ function moveCargoPurchase(state: SimState, buyer: House, seller: House | undefi
 function visitorSaleBlock(state: SimState, seller: House, buyer: House | undefined, situation: Situation): string | null {
   if (!buyer) return "нет гостя";
   const world = worldOf(state, situation.worldId);
-  const ship = situation.shipId ? shipOf(state, situation.shipId) : undefined;
+  const ship = buyer ? liveShip(state, buyer.id, situation) : undefined;
   if (!world || world.ownerId !== seller.id) return "нет нашего порта";
   if (!ship || ship.houseId !== buyer.id || ship.worldId !== world.id || ship.status === "transit" || ship.status === "building") return "корабль гостя уже ушёл";
   if (world.stock.food < situation.qty) return `на складе меньше ${situation.qty} продовольствия`;
@@ -609,8 +635,8 @@ function sellToVisitor(state: SimState, seller: House, buyer: House, situation: 
   const blocked = visitorSaleBlock(state, seller, buyer, situation);
   if (blocked) return blocked;
   const world = worldOf(state, situation.worldId)!;
-  const ship = shipOf(state, situation.shipId ?? "")!;
-  if (!pay(state, buyer, seller, situation.cost)) return "у гостя нет денег на продовольствие";
+  const ship = liveShip(state, buyer.id, situation)!;
+  if (!recordSale(state, buyer, seller, situation.cost)) return "у гостя нет денег на продовольствие";
   destroyGoods(world.stock, state.accounts, "food", situation.qty);
   createGoods(ship.cargo, state.accounts, "food", situation.qty);
   rememberSupply(ship, "food", seller.id, situation.qty);
@@ -668,7 +694,8 @@ function contractReliability(state: SimState, aId: string, bId: string): number 
   let got = 0;
   for (const contract of rows) {
     promised += contract.qtyPerWindow * contract.windows;
-    got += contract.delivered;
+    const closed = contract.history.reduce((sum, item) => sum + item.delivered, 0);
+    got += closed + (contract.status === "active" ? contract.delivered : 0);
   }
   if (promised <= 0) return 1;
   return got / promised;

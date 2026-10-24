@@ -3,7 +3,7 @@ import { dispatch } from "../src/sim/commands";
 import { createSkeleton, endowHouse, endowWorld, placeFamily, placeShip } from "../src/sim/create";
 import { createCrisisScenario } from "../src/sim/diagnostics";
 import { audit, hashState } from "../src/sim/mutate";
-import { advanceSituations } from "../src/sim/politics";
+import { advanceSituations, situationDecision } from "../src/sim/politics";
 import { deserialize, serialize } from "../src/sim/save";
 import { runTicks } from "../src/sim/simulate";
 import type { SimState, Treaty } from "../src/sim/types";
@@ -33,6 +33,10 @@ describe("политические решения", () => {
     expect(port.stock.food).toBe(foodBefore - 10);
     expect(ship.cargo.food).toBe(10);
     expect(player.credits).toBe(creditsBefore + 120);
+    expect(player.flow.sales).toBe(120);
+    expect(player.flow.compensation).toBe(0);
+    expect(rival.flow.purchases).toBe(120);
+    expect(player.tradeWith[rival.id]).toBe(120);
     expect(player.relation[rival.id]).toBe(relationBefore + 8);
     expect(yielded.tariffGrants).toHaveLength(1);
     expect(audit(yielded).ok).toBe(true);
@@ -225,7 +229,12 @@ describe("политические решения", () => {
     runTicks(only, 1);
     const accepted = only.situations.find((item) => item.kind === "foodDependence");
     expect(accepted?.choice).toBe("yield");
-    expect(only.treaties.some((treaty) => treaty.status === "active" && treaty.kind === "supply")).toBe(true);
+    const supply = only.treaties.find((treaty) => treaty.kind === "supply");
+    const supplier = only.houses.find((house) => house.name === "Игрок")!;
+    const hungry = only.houses.find((house) => house.name === "Голодный")!;
+    expect(supply?.status).toBe("active");
+    expect(supply?.proposerId).toBe(supplier.id);
+    expect(supply?.targetId).toBe(hungry.id);
     expect(only.aiLog.some((entry) => entry.text.includes("Зависимость"))).toBe(true);
 
     const choice = aiFoodCase(true);
@@ -235,6 +244,81 @@ describe("политические решения", () => {
     const ai = choice.houses.find((house) => house.name === "Голодный")!;
     expect(choice.treaties.some((treaty) => treaty.kind === "supply")).toBe(false);
     expect(ai.embargo[declined?.otherId ?? ""]).toBe(true);
+  });
+
+  it("уже принятая поставка не превращается в эмбарго, а надёжность считает закрытые окна", () => {
+    const covered = aiFoodCase(false);
+    const player = covered.houses.find((house) => house.player)!;
+    const ai = covered.houses.find((house) => house.name === "Голодный")!;
+    dispatch(covered, {
+      type: "proposeTreaty",
+      houseId: player.id,
+      otherId: ai.id,
+      kind: "supply",
+      good: "food",
+      tariffBps: 200,
+      qtyPerWindow: 10,
+      duration: 24,
+    });
+    runTicks(covered, 1);
+    expect(covered.treaties.filter((treaty) => treaty.kind === "supply")).toHaveLength(1);
+    expect(covered.treaties[0].status).toBe("active");
+    expect(ai.embargo[player.id]).not.toBe(true);
+    expect(covered.situations.find((item) => item.kind === "foodDependence")?.choice).toBe("yield");
+
+    const reliable = brokenCase();
+    const contract = reliable.state.contracts[0];
+    contract.windows = 4;
+    contract.qtyPerWindow = 10;
+    contract.delivered = 0;
+    contract.history = [
+      { window: 0, delivered: 10, paid: 0, penalty: 0 },
+      { window: 1, delivered: 10, paid: 0, penalty: 0 },
+      { window: 2, delivered: 10, paid: 0, penalty: 0 },
+      { window: 3, delivered: 0, paid: 0, penalty: 0 },
+    ];
+    advanceSituations(reliable.state);
+    expect(situationDecision(reliable.state, reliable.buyer, reliable.state.situations[0])).toBe("yield");
+
+    const thin = brokenCase();
+    thin.state.contracts[0].windows = 4;
+    thin.state.contracts[0].qtyPerWindow = 10;
+    thin.state.contracts[0].status = "active";
+    thin.state.contracts[0].delivered = 10;
+    advanceSituations(thin.state);
+    const opened = reliable.state.situations[0];
+    expect(situationDecision(thin.state, thin.buyer, { ...opened, houseId: thin.buyer.id, otherId: thin.seller.id })).toBe("refuse");
+  });
+
+  it("оплата экспорта берёт корабль, который подошёл уже после открытия ситуации", () => {
+    const state = createSkeleton(5, "export-pay");
+    state.aiEnabled = false;
+    const buyer = endowHouse(state, { name: "Игрок", color: "#eee", crest: "ИГ", profile: "player", player: true, credits: 4000 });
+    const capital = endowWorld(state, { id: "e-home", name: "Столица", specialty: "дом", x: 0, y: 0, ownerId: buyer.id, population: 80, popMoneyPerCapita: 2, stock: { food: 0 } });
+    const seller = endowHouse(state, { name: "Склад", color: "#333", crest: "СК", profile: "merchant", player: false, credits: 1000 });
+    const warehouse = endowWorld(state, { id: "e-out", name: "Чужой", specialty: "рынок", x: 100, y: 0, ownerId: seller.id, population: 10, popMoneyPerCapita: 2, stock: { food: 40 } });
+    buyer.capitalId = capital.id;
+    seller.capitalId = warehouse.id;
+    dispatch(state, {
+      type: "createRoute",
+      houseId: buyer.id,
+      name: "Вывоз еды",
+      stops: [
+        { worldId: capital.id, actions: [{ good: "food", mode: "load", amount: 10, price: 0, keep: 0 }] },
+        { worldId: warehouse.id, actions: [{ good: "food", mode: "unload", amount: 10, price: 0, keep: 0 }] },
+      ],
+    });
+    advanceSituations(state);
+    expect(state.situations[0].shipId).toBeNull();
+    const ship = placeShip(state, buyer.id, warehouse, "freighter", 0);
+    const paid = dispatch(state, { type: "resolveSituation", houseId: buyer.id, situationId: state.situations[0].id, choice: "pay" });
+    expect(paid.ok).toBe(true);
+    expect(ship.cargo.food).toBe(10);
+    expect(warehouse.stock.food).toBe(30);
+    expect(seller.flow.sales).toBe(120);
+    expect(seller.flow.compensation).toBe(0);
+    expect(buyer.tradeWith[seller.id]).toBe(120);
+    expect(audit(state).ok).toBe(true);
   });
 });
 
