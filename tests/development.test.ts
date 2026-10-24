@@ -397,4 +397,16 @@ describe("развитие миров", () => {
     expect(state.worlds.find((world) => world.id === "e-free")?.ownerId).toBe(ai.id);
     expect(audit(state).ok).toBe(true);
   });
+
+  it("чужой корабль у причала не держит комплектующие хозяина", () => {
+    const state = createGrainScenario();
+    const house = state.houses[0];
+    const field = state.worlds.find((world) => world.id === "g-field")!;
+    const other = endowHouse(state, { name: "Чужой", color: "#333", crest: "ЧЖ", profile: "expansionist", player: false, credits: 8000 });
+    const ship = placeShip(state, other.id, field, "freighter", 10);
+    ship.mission = { type: "colonize", worldId: "nowhere" };
+    const started = dispatch(state, { type: "developWorld", houseId: house.id, worldId: field.id, path: "agrarian" });
+    expect(started.ok).toBe(true);
+    expect(field.stock.parts).toBe(4);
+  });
 });

@@ -285,9 +285,11 @@ function pathReady(state: SimState, world: World, path: DevelopmentPath): string
 }
 
 function colonyPartsHeld(state: SimState, worldId: string): number {
+  const ownerId = worldOf(state, worldId)?.ownerId;
+  if (!ownerId) return 0;
   let held = 0;
   for (const ship of state.ships) {
-    if (ship.mission?.type !== "colonize" || ship.worldId !== worldId) continue;
+    if (ship.houseId !== ownerId || ship.mission?.type !== "colonize" || ship.worldId !== worldId) continue;
     held += Math.max(0, state.rules.colonizeParts - ship.cargo.parts);
   }
   return held;
