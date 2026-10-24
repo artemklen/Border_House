@@ -1,6 +1,7 @@
 import type { GoodId, Goods } from "./goods";
 
 export type BuildingKind = "farm" | "mill" | "mine" | "smelter" | "workshop" | "fuelwell";
+export type DevelopmentPath = "agrarian" | "industrial" | "transit";
 export type ShipClassId = "skiff" | "freighter" | "barge";
 export type AiProfile = "player" | "merchant" | "industrial" | "expansionist";
 export type TreatyKind = "transit" | "supply" | "exchange";
@@ -124,6 +125,25 @@ export interface World {
   lastEaten: number;
   windowDays: number;
   port: Port;
+  development: Development;
+}
+
+export interface DevelopmentProject {
+  path: DevelopmentPath;
+  targetLevel: 1 | 2;
+  remainingDays: number;
+  spent: number;
+  kind: "build" | "switch";
+}
+
+/** Один путь на мир. Бонус действует только у завершённого уровня и гаснет на время смены пути. */
+export interface Development {
+  path: DevelopmentPath | null;
+  level: 0 | 1 | 2;
+  suspended: boolean;
+  invested: number;
+  project: DevelopmentProject | null;
+  upkeepPaid: boolean;
 }
 
 export interface PortProject {
@@ -297,7 +317,7 @@ export interface Accounts {
 }
 
 export interface SimState {
-  version: 3;
+  version: 4;
   seed: number;
   scenario: string;
   tick: number;
@@ -354,7 +374,9 @@ export type Command =
   | { type: "cancelContract"; houseId: string; contractId: string }
   | { type: "colonize"; houseId: string; shipId: string; worldId: string }
   | { type: "appointGovernor"; houseId: string; worldId: string; personId: string }
-  | { type: "expandPort"; houseId: string; worldId: string; kind: "berth" | "speed" };
+  | { type: "expandPort"; houseId: string; worldId: string; kind: "berth" | "speed" }
+  | { type: "developWorld"; houseId: string; worldId: string; path: DevelopmentPath }
+  | { type: "cancelDevelopment"; houseId: string; worldId: string };
 
 export interface CommandResult {
   ok: boolean;

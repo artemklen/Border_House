@@ -1,4 +1,5 @@
 import { destroyGoods, houseOf, moveCredits, note, shipOf, sinkCredits, worldOf } from "./mutate";
+import { transitThroughputBonus } from "./specialty";
 import type { CommandResult, Port, Route, Ship, SimState, World } from "./types";
 
 export const PORT_BERTHS = 1;
@@ -91,7 +92,7 @@ export function arrangePorts(state: SimState): void {
       if (next) port.berth.push(next);
     }
     const count = Math.max(1, port.berth.length);
-    const throughput = effectiveThroughput(port);
+    const throughput = effectiveThroughput(port) + transitThroughputBonus(world);
     const base = Math.floor(throughput / count);
     let extra = throughput - base * count;
     for (const id of port.berth) {

@@ -1,5 +1,6 @@
 import { isContractStatus } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
+import { emptyDevelopment } from "./specialty";
 import { GOODS } from "./goods";
 import type { SimState } from "./types";
 
@@ -10,7 +11,7 @@ export class SaveError extends Error {
   }
 }
 
-/** Версия 3 хранит порты и очереди. Версии 1 и 2 поднимаются: у миров базовый порт, у маршрутов нет ожидания загрузки. */
+/** Версия 4 хранит путь развития мира. Версии 1–3 поднимаются: у старых миров путь пустой, бонуса нет. */
 export function serialize(state: SimState): string {
   return JSON.stringify({ version: state.version, state });
 }
@@ -39,7 +40,7 @@ export function deserialize(raw: string): SimState {
   }
   if (!parsed || typeof parsed !== "object") throw new SaveError("Файл сохранения повреждён.");
   const file = parsed as { version?: unknown; state?: SimState };
-  if (file.version !== 1 && file.version !== 2 && file.version !== 3) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1, 2 и 3.");
+  if (file.version !== 1 && file.version !== 2 && file.version !== 3 && file.version !== 4) throw new SaveError("Несовместимая версия сохранения. Эта сборка читает версии 1, 2, 3 и 4.");
   const state = file.state;
   if (!state || !Number.isInteger(state.tick) || state.tick < 0 || typeof state.rngState !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
@@ -64,7 +65,6 @@ function migrateSave(state: SimState, version: number): void {
     }
   }
   if (version < 3) {
-    state.version = 3;
     if (Array.isArray(state.worlds)) {
       for (const world of state.worlds) {
         if (!world) continue;
@@ -104,6 +104,17 @@ function migrateSave(state: SimState, version: number): void {
       }
     }
   }
+  if (version < 4) {
+    state.version = 4;
+    if (Array.isArray(state.worlds)) {
+      for (const world of state.worlds) {
+        if (!world) continue;
+        if (!world.development || (world.development.path !== null && world.development.path !== "agrarian" && world.development.path !== "industrial" && world.development.path !== "transit")) {
+          world.development = emptyDevelopment();
+        }
+      }
+    }
+  }
 }
 
 const LISTS = ["houses", "worlds", "ships", "routes", "treaties", "contracts", "people", "journal", "aiLog"] as const;
@@ -123,7 +134,7 @@ function requirePrices(value: unknown, label: string): void {
 }
 
 function assertPlayable(state: SimState): void {
-  if (state.version !== 3) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
+  if (state.version !== 4) throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   if (typeof state.seed !== "number" || !Number.isFinite(state.seed)) throw new SaveError("Файл сохранения повреждён: нет зерна генератора.");
   for (const key of LISTS) {
     if (!Array.isArray(state[key])) throw new SaveError(`Файл сохранения повреждён: нет списка «${key}».`);
@@ -221,6 +232,16 @@ function assertPlayable(state: SimState): void {
     }
     if (port.queue.some((id) => typeof id !== "string") || port.berth.some((id) => typeof id !== "string")) {
       throw new SaveError("Файл сохранения повреждён: очередь порта повреждена.");
+    }
+    const development = world.development;
+    const pathOk = !development?.path || development.path === "agrarian" || development.path === "industrial" || development.path === "transit";
+    if (!development || !pathOk || !requireInt(development.level, 0, 2) || typeof development.suspended !== "boolean" || !requireInt(development.invested, 0, 1_000_000_000) || typeof development.upkeepPaid !== "boolean") {
+      throw new SaveError("Файл сохранения повреждён: развитие мира повреждено.");
+    }
+    if (development.path === null && development.level !== 0) throw new SaveError("Файл сохранения повреждён: развитие мира повреждено.");
+    const project = development.project;
+    if (project && (project.path !== "agrarian" && project.path !== "industrial" && project.path !== "transit" || (project.targetLevel !== 1 && project.targetLevel !== 2) || !requireInt(project.remainingDays, 0, 30) || !requireInt(project.spent, 0, 1_000_000_000) || (project.kind !== "build" && project.kind !== "switch"))) {
+      throw new SaveError("Файл сохранения повреждён: стройка развития повреждена.");
     }
   }
   const routeIds = new Set<string>();

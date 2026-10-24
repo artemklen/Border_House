@@ -1,5 +1,6 @@
 import { dispatch } from "./commands";
 import { portIdea } from "./port";
+import { developmentIdea } from "./specialty";
 import { judgeContract } from "./contracts";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
@@ -21,7 +22,8 @@ export function planAi(state: SimState): void {
     answerProposals(state, house);
     answerContracts(state, house);
     const portPlan = portIdea(state, house.id);
-    const plans = portPlan ? [portPlan, ...ideas(state, house)] : ideas(state, house);
+    const developmentPlan = developmentIdea(state, house.id);
+    const plans = [...(portPlan ? [portPlan] : []), ...ideas(state, house), ...(developmentPlan ? [developmentPlan] : [])];
     let applied = 0;
     for (const plan of plans) {
       if (applied >= 2) break;

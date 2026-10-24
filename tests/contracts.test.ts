@@ -211,7 +211,7 @@ describe("коммерческие контракты", () => {
     delete (parsed.state.houses[0].lastFlow as { compensation?: number }).compensation;
     delete (parsed.state as { contracts?: unknown }).contracts;
     const loaded = deserialize(JSON.stringify(parsed));
-    expect(loaded.version).toBe(3);
+    expect(loaded.version).toBe(4);
     expect(loaded.contracts).toEqual([]);
     expect(loaded.houses[0].reserved).toBe(0);
     expect(loaded.houses[0].flow.penalties).toBe(0);

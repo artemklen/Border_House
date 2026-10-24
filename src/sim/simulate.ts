@@ -1,6 +1,7 @@
 import { foodReturnFuel, foodRouteNeedsFuel, foodVoyageCovered, planAi, refreshFoodFuel } from "./ai";
 import { payContractTakes, planSale, settleContractWindows } from "./contracts";
 import { advanceLoadWaits, advancePorts, arrangePorts, capPort, holdForLoad, leavePort, notePortMove, recordPortDays, releaseIdleBerths } from "./port";
+import { advanceDevelopments, intendedInputs, plannedBatch, transitFuelDiscount } from "./specialty";
 import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
@@ -36,6 +37,7 @@ import type { Building, Person, Recipe, Route, Ship, SimState, World } from "./t
 export function tick(state: SimState): void {
   state.tick += 1;
   for (const world of state.worlds) world.demand = emptyGoods();
+  advanceDevelopments(state);
   employAndProduce(state);
   feedWorlds(state);
   advancePorts(state);
@@ -59,7 +61,7 @@ function employAndProduce(state: SimState): void {
     const ready = world.buildings.filter((building) => building.remainingDays <= 0 && building.enabled);
     for (const building of byId(ready)) {
       const recipe = RECIPES[building.kind];
-      const needed = requiredWorkers(state, world, recipe);
+      const needed = requiredWorkers(state, world, { ...recipe, workers: plannedBatch(world, recipe).workers });
       const hired = Math.min(needed, laborLeft);
       laborLeft -= hired;
       building.workers = hired;
@@ -95,18 +97,20 @@ function requiredWorkers(state: SimState, world: World, recipe: Recipe): number 
 
 function runBuilding(state: SimState, world: World, building: Building): void {
   const recipe = RECIPES[building.kind];
+  const batch = plannedBatch(world, recipe);
   const owner = world.ownerId ? houseOf(state, world.ownerId) : undefined;
   if (!owner) {
     building.stopReason = "мир не принадлежит дому";
     return;
   }
-  for (const good of GOODS) world.demand[good] += recipe.inputs[good] ?? 0;
+  const wantedInputs = intendedInputs(world, recipe);
+  for (const good of GOODS) world.demand[good] += wantedInputs[good] ?? 0;
   if (!sinkCredits(state, { kind: "house", id: owner.id }, recipe.upkeep)) {
     building.stopReason = "нет денег на содержание предприятия";
     return;
   }
   owner.flow.upkeep += recipe.upkeep;
-  const needed = requiredWorkers(state, world, recipe);
+  const needed = requiredWorkers(state, world, { ...recipe, workers: batch.workers });
   if (building.workers < needed) {
     const wageBill = building.workers * state.rules.wage;
     if (wageBill > 0 && availableCredits(owner) >= wageBill) {
@@ -123,7 +127,7 @@ function runBuilding(state: SimState, world: World, building: Building): void {
   }
   owner.flow.wages += wageBill;
   for (const good of GOODS) {
-    const need = recipe.inputs[good] ?? 0;
+    const need = batch.inputs[good] ?? 0;
     if (world.stock[good] < need) {
       building.stopReason = `не хватает: ${goodLabel(good)}`;
       return;
@@ -136,23 +140,23 @@ function runBuilding(state: SimState, world: World, building: Building): void {
       return;
     }
   }
-  const net = sumOutputs(recipe) - sumInputs(recipe);
+  const net = GOODS.reduce((sum, good) => sum + (batch.outputs[good] ?? 0) - (batch.inputs[good] ?? 0), 0);
   if (sumGoods(world.stock) + net > world.capacity) {
     building.stopReason = "склад заполнен";
     return;
   }
-  const hasInputs = GOODS.some((good) => (recipe.inputs[good] ?? 0) > 0);
-  if (hasInputs) transformGoods(world.stock, state.accounts, recipe.inputs, recipe.outputs);
+  const hasInputs = GOODS.some((good) => (batch.inputs[good] ?? 0) > 0);
+  if (hasInputs) transformGoods(world.stock, state.accounts, batch.inputs, batch.outputs);
   else {
     for (const good of GOODS) {
-      const made = recipe.outputs[good] ?? 0;
+      const made = batch.outputs[good] ?? 0;
       if (made <= 0) continue;
       world.stock[good] += made;
       state.accounts.goodsCreated[good] += made;
-      if (recipe.deposit === good) world.deposits[good] -= made;
+      if (recipe.deposit === good) world.deposits[good] -= recipe.outputs[good] ?? 0;
     }
   }
-  for (const good of GOODS) world.produced[good] += recipe.outputs[good] ?? 0;
+  for (const good of GOODS) world.produced[good] += batch.outputs[good] ?? 0;
   building.stopReason = null;
 }
 
@@ -613,7 +617,7 @@ export function depart(state: SimState, ship: Ship, route: Route): void {
   }
   const dist = distance(origin, dest);
   const shipClass = SHIP_CLASSES[ship.classId];
-  const fuel = Math.max(1, Math.ceil((dist * shipClass.fuelPer1000) / 1000));
+  const fuel = Math.max(1, Math.ceil((dist * shipClass.fuelPer1000) / 1000) - transitFuelDiscount(origin, ship.houseId));
   const crossings = territoriesOnRoute(state, origin.id, dest.id, ship.houseId);
   if (crossings.some((world) => accessDenied(state, ship.houseId, world))) {
     block(ship, "нет доступа: маршрут пересекает эмбарго");
@@ -847,10 +851,3 @@ function goodLabel(good: GoodId): string {
   return { grain: "зерно", food: "продовольствие", ore: "руда", alloys: "сплавы", parts: "комплектующие", fuel: "топливо" }[good];
 }
 
-function sumOutputs(recipe: Recipe): number {
-  return GOODS.reduce((sum, good) => sum + (recipe.outputs[good] ?? 0), 0);
-}
-
-function sumInputs(recipe: Recipe): number {
-  return GOODS.reduce((sum, good) => sum + (recipe.inputs[good] ?? 0), 0);
-}
