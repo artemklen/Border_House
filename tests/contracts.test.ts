@@ -428,6 +428,27 @@ describe("коммерческие контракты", () => {
       ],
     });
     expect(contractRisks(quiet.state, quiet.state.contracts[0]).join(" ")).toContain("нет действующего маршрута");
+
+    const funded = bench();
+    propose(funded.state, funded.sellerId, funded.buyerId, funded.buyerWorld, 4, 8, 2, 0, 20);
+    dispatch(funded.state, { type: "respondContract", houseId: funded.buyerId, contractId: funded.state.contracts[0].id, accept: true });
+    sinkCredits(funded.state, { kind: "house", id: funded.buyerId }, funded.state.houses[1].credits - funded.state.houses[1].reserved);
+    const carrier = funded.state.ships[0];
+    carrier.worldId = funded.buyerWorld;
+    carrier.cargo.food = 4;
+    carrier.supplyFrom.food = { [funded.sellerId]: 4 };
+    funded.state.accounts.goodsCreated.food += 4;
+    dispatch(funded.state, {
+      type: "createRoute", houseId: funded.sellerId, name: "Дальше", shipId: carrier.id,
+      stops: [
+        { worldId: funded.buyerWorld, actions: [{ good: "food", mode: "sell", amount: 8, price: 0, keep: 0 }] },
+        { worldId: funded.sellerWorld, actions: [] },
+      ],
+    });
+    runTicks(funded.state, 1);
+    expect(funded.state.contracts[0].delivered).toBe(4);
+    expect(carrier.status).toBe("transit");
+    mustAudit(funded.state);
   });
 
   it("четвёртый контракт пары отклоняется, дипломатический договор не занимает это место", () => {

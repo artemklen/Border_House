@@ -474,7 +474,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     } else if (sale && sale.blocked === "money" && qty < wanted) {
       ship.stopReason = "у покупателя нет денег";
       hold = true;
-    } else if (qty < wanted && affordable <= qty && !(action.mode === "buy" && room <= qty)) {
+    } else if (!sale && qty < wanted && affordable <= qty && !(action.mode === "buy" && room <= qty)) {
       ship.stopReason = "у покупателя нет денег";
       hold = true;
     } else if (action.mode === "sell" && qty < wanted && room <= qty) {
