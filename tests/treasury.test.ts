@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { dispatch } from "../src/sim/commands";
-import { createGame, createSkeleton, endowHouse, endowWorld, placeBuilding } from "../src/sim/create";
+import { createGame, createSkeleton, endowHouse, endowWorld, placeBuilding, placeShip } from "../src/sim/create";
+import { createGoods } from "../src/sim/mutate";
+import { holdForLoad } from "../src/sim/port";
 import { tick } from "../src/sim/simulate";
 import type { Flow } from "../src/sim/types";
 import { hintLines, treasuryOutlook, treasuryWarning } from "../src/sim/view";
@@ -108,7 +110,7 @@ describe("казна базовой партии", () => {
     }).ok).toBe(true);
     tick(state);
     expect(ship.cargo.fuel).toBe(70);
-    expect(ship.stopReason).toBe("в баке нет места для топлива");
+    expect(ship.stopReason).toContain("в баке нет места для топлива");
 
     const held = createGame({ seed: 21, scenario: "base" });
     held.aiEnabled = false;
@@ -171,5 +173,64 @@ describe("казна базовой партии", () => {
     const reset = player.flowDays === 0 && beforeDays !== 0;
     const flow = dayFlow(beforeFlow, player.flow, player.lastFlow, reset);
     expect(flow.wages).toBe(outlook?.wages);
+  });
+
+  it("полный бак освобождает причал, а колония не сливает топливо на обратный путь", () => {
+    const state = createGame({ seed: 21, scenario: "base" });
+    state.aiEnabled = false;
+    const player = state.houses.find((house) => house.player)!;
+    const bread = state.worlds.find((world) => world.id === "w-bread")!;
+    const stuck = state.ships.find((item) => item.houseId === player.id && item.worldId === "w-bread")!;
+    const waiter = state.ships.find((item) => item.houseId === player.id && item.id !== stuck.id && item.classId === "freighter")!;
+    stuck.cargo.fuel = 70;
+    waiter.worldId = bread.id;
+    waiter.status = "docked";
+    waiter.portArrived = 2;
+    stuck.portArrived = 1;
+    expect(dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Лишнее топливо",
+      shipId: stuck.id,
+      autoFuel: false,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "fuel", mode: "load", amount: 5, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    }).ok).toBe(true);
+    expect(dispatch(state, {
+      type: "createRoute",
+      houseId: player.id,
+      name: "Ждёт причал",
+      shipId: waiter.id,
+      autoFuel: false,
+      stops: [
+        { worldId: "w-bread", actions: [{ good: "food", mode: "load", amount: 1, price: 0, keep: 0 }] },
+        { worldId: "w-harbor", actions: [] },
+      ],
+    }).ok).toBe(true);
+    bread.port.berth = [stuck.id];
+    bread.port.queue = [waiter.id];
+    tick(state);
+    expect(stuck.stopReason ?? "").toContain("Причал освобождён");
+    expect(bread.port.berth).not.toContain(stuck.id);
+
+    const colony = createSkeleton(1, "fixture");
+    const house = endowHouse(colony, { name: "Дом Солар", color: "#e0a84a", crest: "СЛ", profile: "player", player: true, credits: 20000 });
+    const home = endowWorld(colony, { name: "Дом", specialty: "дом", x: 0, y: 0, ownerId: house.id, population: 10, popMoneyPerCapita: 0, stock: { food: 40, parts: 20, fuel: 40 } });
+    endowWorld(colony, { name: "Пустошь", specialty: "пусто", x: 607, y: 0, ownerId: null, population: 0, popMoneyPerCapita: 0 });
+    const ship = placeShip(colony, house.id, home, "freighter", 34);
+    createGoods(ship.cargo, colony.accounts, "food", 30);
+    createGoods(ship.cargo, colony.accounts, "parts", 12);
+    expect(dispatch(colony, { type: "colonize", houseId: house.id, shipId: ship.id, worldId: colony.worlds[1].id }).ok).toBe(true);
+    const fuelAction = colony.routes[0].stops[0].actions.find((action) => action.good === "fuel");
+    expect(fuelAction).toBeUndefined();
+
+    const partial = placeShip(colony, house.id, home, "freighter", 0);
+    partial.cargo.food = 40;
+    partial.loadWait = 0;
+    expect(holdForLoad(partial, { minLoad: 50, maxWait: 3, stops: [], id: "r", houseId: house.id, name: "", paused: false, autoFuel: false, revenue: 0, cost: 0, fuelUsed: 0, movedWindow: 0, daysFlying: 0, daysPort: 0, daysWaiting: 0, lastRevenue: 0, lastCost: 0, lastFuelUsed: 0, lastMoved: 0 } as never, 70)).toBe("waiting");
+    expect(partial.stopReason).toContain("ждём загрузку");
+    expect(partial.stopReason).not.toContain("не влезает");
   });
 });

@@ -452,14 +452,12 @@ export function syncColonyRoute(state: SimState, ship: Ship): CommandResult {
 }
 
 function colonyFuelTarget(state: SimState, ship: Ship): number {
-  const rules = state.rules;
-  const room = SHIP_CLASSES[ship.classId].capacity - rules.colonizeParts - rules.colonizeFood;
-  if (room <= 0) return 0;
+  const tank = SHIP_CLASSES[ship.classId].capacity;
   const here = worldOf(state, ship.worldId);
   const target = ship.mission?.type === "colonize" ? worldOf(state, ship.mission.worldId) : undefined;
-  if (!here || !target || here.id === target.id) return Math.min(room, 24);
+  if (!here || !target || here.id === target.id) return Math.min(tank, 24);
   const outbound = fuelAlongRoute(state, ship, here.id, target.id);
-  return Math.min(outbound * 2, room);
+  return Math.min(outbound * 2, tank);
 }
 
 function fuelAlongRoute(state: SimState, ship: Ship, fromId: string, targetId: string): number {

@@ -205,7 +205,7 @@ export function holdForLoad(ship: Ship, route: Route, capacity: number): "open" 
     ship.loadWait = 0;
     return "met";
   }
-  const conflict = route.minLoad > capacity - dry;
+  const conflict = route.minLoad > capacity;
   if (ship.loadWait < route.maxWait) {
     const day = ship.loadWait + 1;
     ship.stopReason = conflict
@@ -305,6 +305,7 @@ function berthIsStuck(reason: string): boolean {
     || reason.startsWith("нет товара")
     || reason.startsWith("нет места")
     || reason.startsWith("в трюме нет места")
+    || reason.startsWith("в баке нет места")
     || reason.startsWith("не хватает денег")
     || reason.startsWith("нет доступа");
 }
