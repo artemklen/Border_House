@@ -9,6 +9,7 @@ import { createCrisisScenario, createExpansionScenario, createGrainScenario, cre
 import { GOODS, GOOD_NAME, type GoodId } from "../sim/goods";
 import { foodCover, houseOf, worldOf } from "../sim/mutate";
 import { BERTH_COST, BERTH_DAYS, BERTH_PARTS, BERTH_UPKEEP, SPEED_COST, SPEED_DAYS, SPEED_PARTS, SPEED_UPKEEP, effectiveBerths, effectiveThroughput, portEstimate } from "../sim/port";
+import { contractStatusLabel, officeLine, personRoleLabel, shipStatusLabel, treatyStatusLabel } from "../sim/labels";
 import { CHOICE_LABEL, SITUATION_LABEL, choicePreview, describeGoal } from "../sim/politics";
 import { PATH_LABEL, developmentBlock, developmentText, levelCost, transitThroughputBonus } from "../sim/specialty";
 import type { DevelopmentPath, SituationChoice } from "../sim/types";
@@ -804,7 +805,7 @@ function FleetPanel(props: {
       {ships.map((ship) => (
         <article key={ship.id} className="card">
           <h3>{ship.name}</h3>
-          <p>{ship.status === "transit" ? "в пути" : ship.status === "blocked" ? "стоит" : ship.status === "building" ? "строится" : "у причала"}. {ship.stopReason ?? "рейс свободен"}.</p>
+          <p>{shipStatusLabel(ship.status)}. {ship.stopReason ?? "рейс свободен"}.</p>
           <p>Груз: {GOODS.map((good) => `${GOOD_NAME[good]} ${ship.cargo[good]}`).join(", ")}.</p>
           <div className="row">
             <button onClick={() => props.onShip(ship.id)}>Выбрать</button>
@@ -991,7 +992,7 @@ function DealPanel(props: {
       })}>Предложить контракт</button>
       {props.sim.treaties.map((treaty) => (
         <article key={treaty.id} className="card">
-          <h3>{treaty.status}</h3>
+          <h3>{treatyStatusLabel(treaty.status)}</h3>
           <p>{treaty.note}</p>
           <p>Поставлено в этом окне {treaty.delivered} / {treaty.qtyPerWindow}. До дня {treaty.endTick}.</p>
           {treaty.status === "proposed" && treaty.targetId === house.id ? (
@@ -1008,7 +1009,7 @@ function DealPanel(props: {
         const destination = props.sim.worlds.find((item) => item.id === contract.worldId);
         return (
         <article key={contract.id} className="card">
-          <h3>Контракт {{ proposed: "предложен", active: "идёт", completed: "завершён", broken: "сорван", cancelled: "отменён", rejected: "отклонён" }[contract.status]}</h3>
+          <h3>Контракт {contractStatusLabel(contract.status)}</h3>
           <p>{seller?.name ?? "продавец"} поставляет {buyer?.name ?? "покупателю"} {GOOD_NAME[contract.good]} в «{destination?.name ?? "мир"}». Цена {contract.price}, объём {contract.qtyPerWindow} за окно, допустимый недовоз {contract.shortfall}, срок {contract.windows} окон.</p>
           <p>{contract.note}</p>
           <p>Окно {contract.windowIndex + 1} / {contract.windows}, день {contract.windowDays} / {props.sim.rules.window}. Принято {contract.delivered} / {contract.qtyPerWindow} по {contract.price} кред. Резерв покупателя {contract.buyerReserve}, залог {contract.deposit}.</p>
@@ -1037,11 +1038,11 @@ function HousePanel(props: { sim: SimState; houseId: string; onAppoint: (worldId
   const heir = people.find((person) => person.alive && person.role === "heir");
   return (
     <>
-      <p>Глава: {head?.name ?? "нет"}, {head ? Math.floor(head.ageDays / props.sim.rules.ticksPerYear) : "—"} лет, черты {head?.traits.join(", ")}. Наследник: {heir?.name ?? "не назначен"}. Смерть главы не обнуляет казну. Если наследника нет, дом берёт губернатор с наибольшей лояльностью, иначе старшая родня, иначе регент.</p>
+      <p>{head ? officeLine("Глава", head.name, "Глава: нет") : "Глава: нет"}, {head ? Math.floor(head.ageDays / props.sim.rules.ticksPerYear) : "—"} лет, черты {head?.traits.join(", ")}. {heir ? officeLine("Наследник", heir.name, "Наследник: не назначен") : "Наследник: не назначен"}. Смерть главы не обнуляет казну. Если наследника нет, дом берёт губернатор с наибольшей лояльностью, иначе старшая родня, иначе регент.</p>
       {people.map((person) => (
         <article key={person.id} className="card">
           <h3>{person.name}</h3>
-          <p>{person.alive ? person.role : "умер"}, {Math.floor(person.ageDays / props.sim.rules.ticksPerYear)} лет, лояльность {person.loyalty}, черты {person.traits.join(", ") || "нет"}.</p>
+          <p>{person.alive ? personRoleLabel(person.role) : "умер"}, {Math.floor(person.ageDays / props.sim.rules.ticksPerYear)} лет, лояльность {person.loyalty}, черты {person.traits.join(", ") || "нет"}.</p>
         </article>
       ))}
       <Appoint governorId={people.find((person) => person.alive && person.role !== "head")?.id ?? ""} worlds={props.sim.worlds.filter((world) => world.ownerId === props.houseId)} people={people.filter((person) => person.alive && person.role !== "head")} onAppoint={props.onAppoint} />
