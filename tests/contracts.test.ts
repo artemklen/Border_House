@@ -259,6 +259,105 @@ describe("коммерческие контракты", () => {
     mustAudit(risk.state);
   });
 
+  it("смешанный груз не уходит без оплаты, а поставка делится между контрактами", () => {
+    const state = createSkeleton(3, "mixed");
+    state.aiEnabled = false;
+    state.rules.window = 6;
+    const buyer = endowHouse(state, { name: "Покупатель", color: "#d4533c", crest: "ПК", profile: "merchant", player: false, credits: 5000 });
+    const seller = endowHouse(state, { name: "Продавец", color: "#e0a84a", crest: "ПР", profile: "player", player: true, credits: 5000 });
+    const from = endowWorld(state, {
+      id: "m-from", name: "Склад", specialty: "еда", x: 0, y: 0, ownerId: seller.id, population: 0, popMoneyPerCapita: 0, stock: { fuel: 10 }, tariffBps: 0,
+    });
+    const to = endowWorld(state, {
+      id: "m-to", name: "Рынок", specialty: "рынок", x: 40, y: 0, ownerId: buyer.id, population: 0, popMoneyPerCapita: 0, stock: { fuel: 10 }, tariffBps: 0,
+    });
+    seller.capitalId = from.id;
+    buyer.capitalId = to.id;
+    const ship = placeShip(state, seller.id, to, "freighter", 10);
+    ship.cargo.food = 8;
+    ship.supplyFrom.food = { [buyer.id]: 4, [seller.id]: 4 };
+    state.accounts.goodsCreated.food += 8;
+    propose(state, seller.id, buyer.id, to.id, 4, 8, 2, 0, 10);
+    dispatch(state, { type: "respondContract", houseId: buyer.id, contractId: state.contracts[0].id, accept: true });
+    sinkCredits(state, { kind: "house", id: buyer.id }, buyer.credits - buyer.reserved);
+    dispatch(state, {
+      type: "createRoute", houseId: seller.id, name: "Смесь", shipId: ship.id,
+      stops: [{ worldId: to.id, actions: [{ good: "food", mode: "sell", amount: 4, price: 0, keep: 0 }] }],
+    });
+    const stockBefore = to.stock.food;
+    runTicks(state, 1);
+    expect(to.stock.food).toBe(stockBefore);
+    expect(state.contracts[0].delivered).toBe(0);
+    expect(seller.flow.sales).toBe(0);
+    mustAudit(state);
+
+    const split = bench();
+    propose(split.state, split.sellerId, split.buyerId, split.buyerWorld, 4, 8, 2, 0, 10);
+    propose(split.state, split.sellerId, split.buyerId, split.buyerWorld, 4, 8, 2, 0, 10);
+    dispatch(split.state, { type: "respondContract", houseId: split.buyerId, contractId: split.state.contracts[0].id, accept: true });
+    dispatch(split.state, { type: "respondContract", houseId: split.buyerId, contractId: split.state.contracts[1].id, accept: true });
+    sellRoute(split.state, split.sellerId, split.shipId, split.sellerWorld, split.buyerWorld, 8);
+    for (let day = 0; day < 12 && split.state.contracts[1].delivered < 4; day += 1) runTicks(split.state, 1);
+    expect(split.state.contracts[0].delivered).toBe(4);
+    expect(split.state.contracts[1].delivered).toBe(4);
+    expect(split.state.contracts[0].paidWindow).toBe(32);
+    expect(split.state.contracts[1].paidWindow).toBe(32);
+    mustAudit(split.state);
+  });
+
+  it("предел цены маршрута сравнивается с ценой расчёта, а не только с рынком", () => {
+    const agreed = bench();
+    propose(agreed.state, agreed.sellerId, agreed.buyerId, agreed.buyerWorld, 4, 8, 2, 0, 20);
+    dispatch(agreed.state, { type: "respondContract", houseId: agreed.buyerId, contractId: agreed.state.contracts[0].id, accept: true });
+    dispatch(agreed.state, {
+      type: "createRoute", houseId: agreed.sellerId, name: "Порог", shipId: agreed.shipId,
+      stops: [
+        { worldId: agreed.sellerWorld, actions: [{ good: "food", mode: "load", amount: 4, price: 0, keep: 0 }] },
+        { worldId: agreed.buyerWorld, actions: [{ good: "food", mode: "sell", amount: 4, price: 8, keep: 0 }] },
+      ],
+    });
+    agreed.state.rules.basePrice.food = 5;
+    for (let day = 0; day < 12 && agreed.state.contracts[0].delivered === 0; day += 1) {
+      agreed.state.worlds[1].prices.food = 5;
+      runTicks(agreed.state, 1);
+    }
+    expect(agreed.state.contracts[0].trades[0].price).toBe(8);
+
+    const spot = bench();
+    propose(spot.state, spot.sellerId, spot.buyerId, spot.buyerWorld, 4, 8, 2, 0, 20);
+    dispatch(spot.state, { type: "respondContract", houseId: spot.buyerId, contractId: spot.state.contracts[0].id, accept: true });
+    dispatch(spot.state, {
+      type: "createRoute", houseId: spot.sellerId, name: "Рынок", shipId: spot.shipId,
+      stops: [
+        { worldId: spot.sellerWorld, actions: [{ good: "food", mode: "load", amount: 4, price: 0, keep: 0 }] },
+        { worldId: spot.buyerWorld, actions: [{ good: "food", mode: "sell", amount: 4, price: 10, keep: 0 }] },
+      ],
+    });
+    spot.state.rules.basePrice.food = 30;
+    for (let day = 0; day < 12 && spot.state.routes[0].revenue === 0; day += 1) {
+      runTicks(spot.state, 1);
+    }
+    expect(spot.state.contracts[0].delivered).toBe(0);
+    expect(spot.state.routes[0].revenue).toBe(48);
+    mustAudit(agreed.state);
+    mustAudit(spot.state);
+  });
+
+  it("битое сохранение версии 2 не подменяет контракты пустым списком", () => {
+    const { state, sellerId, buyerId, buyerWorld } = bench();
+    propose(state, sellerId, buyerId, buyerWorld, 4, 8, 2, 0, 20);
+    dispatch(state, { type: "respondContract", houseId: buyerId, contractId: state.contracts[0].id, accept: true });
+    const parsed = JSON.parse(serialize(state)) as { version: number; state: { contracts: unknown } };
+    parsed.state.contracts = null;
+    expect(() => deserialize(JSON.stringify(parsed))).toThrow(/contracts/);
+    const history = JSON.parse(serialize(state)) as { state: { contracts: Array<{ history: unknown; trades: unknown }> } };
+    history.state.contracts[0].history = [null];
+    expect(() => deserialize(JSON.stringify(history))).toThrow(/история/);
+    const trades = JSON.parse(serialize(state)) as { state: { contracts: Array<{ trades: unknown }> } };
+    trades.state.contracts[0].trades = [null];
+    expect(() => deserialize(JSON.stringify(trades))).toThrow(/приёмка/);
+  });
+
   it("четвёртый контракт пары отклоняется, дипломатический договор не занимает это место", () => {
     const { state, sellerId, buyerId, buyerWorld } = bench();
     for (let index = 0; index < 3; index += 1) {

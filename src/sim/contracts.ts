@@ -14,46 +14,80 @@ export function contractPairCount(state: SimState, aId: string, bId: string): nu
   }).length;
 }
 
-export function contractRoom(state: SimState, sellerId: string, buyerId: string, worldId: string, good: GoodId): number {
-  const contract = matchingContract(state, sellerId, buyerId, worldId, good);
-  if (!contract || contract.price <= 0) return 0;
-  const left = contract.qtyPerWindow - contract.delivered;
-  const funded = Math.floor(contract.buyerReserve / contract.price);
-  return Math.max(0, Math.min(left, funded));
+export interface PlannedSale {
+  qty: number;
+  marketUnits: number;
+  contractUnits: number;
+  takes: Array<{ contractId: string; units: number }>;
+  blocked: "price" | "money" | "none";
 }
 
-export function foreignSupply(ship: Ship, good: GoodId, destinationOwnerId: string): number {
-  const from = ship.supplyFrom?.[good];
-  if (!from || Object.keys(from).length === 0) return destinationOwnerId === ship.houseId ? 0 : ship.cargo[good];
-  let foreign = 0;
-  for (const [houseId, qty] of Object.entries(from)) {
-    if (houseId !== destinationOwnerId) foreign += qty;
-  }
-  return foreign;
-}
-
-export function acceptContractUnits(state: SimState, sellerId: string, buyerId: string, worldId: string, good: GoodId, units: number): number {
-  if (units <= 0) return 0;
-  const contract = matchingContract(state, sellerId, buyerId, worldId, good);
+/** Считает, сколько единиц реально оплачивается в порядке списания происхождения. Неоплаченный префикс останавливает продажу. */
+export function planSale(
+  state: SimState,
+  ship: Ship,
+  buyerId: string,
+  worldId: string,
+  good: GoodId,
+  limit: number,
+  spotPrice: number,
+  floorPrice: number,
+): PlannedSale {
+  const empty: PlannedSale = { qty: 0, marketUnits: 0, contractUnits: 0, takes: [], blocked: "none" };
+  if (limit <= 0 || spotPrice <= 0) return empty;
   const buyer = houseOf(state, buyerId);
-  const seller = houseOf(state, sellerId);
-  if (!contract || !buyer || !seller) return 0;
-  const affordable = Math.floor(Math.min(contract.buyerReserve, buyer.reserved, buyer.credits) / contract.price);
-  const taken = Math.min(units, contract.qtyPerWindow - contract.delivered, affordable);
-  if (taken <= 0) return 0;
-  const money = taken * contract.price;
-  buyer.credits -= money;
-  buyer.reserved -= money;
-  buyer.flow.purchases += money;
-  contract.buyerReserve -= money;
-  seller.credits += money;
-  seller.flow.sales += money;
-  contract.delivered += taken;
-  contract.paidWindow += money;
-  contract.trades.push({ tick: state.tick, qty: taken, price: contract.price });
-  if (contract.trades.length > 8) contract.trades.shift();
-  note(state, buyer.id, `Контракт ${contract.id}: принято ${taken} ${GOOD_NAME[good]} по ${contract.price} кред. Оплачено ${money} из резерва, не по сегодняшней рыночной цене.`);
-  return money;
+  let marketBudget = buyer ? Math.floor(availableCredits(buyer) / spotPrice) : 0;
+  const reserved = new Map<string, number>();
+  const takes: Array<{ contractId: string; units: number }> = [];
+  let marketUnits = 0;
+  let contractUnits = 0;
+  for (const origin of supplyOrder(ship, good, limit, ship.houseId)) {
+    const contract = origin === buyerId ? undefined : nextContract(state, ship.houseId, buyerId, worldId, good, floorPrice, reserved);
+    if (contract) {
+      const row = takes.find((item) => item.contractId === contract.id);
+      if (row) row.units += 1;
+      else takes.push({ contractId: contract.id, units: 1 });
+      reserved.set(contract.id, (reserved.get(contract.id) ?? 0) + 1);
+      contractUnits += 1;
+      continue;
+    }
+    if (spotPrice >= floorPrice && marketBudget > 0) {
+      marketUnits += 1;
+      marketBudget -= 1;
+      continue;
+    }
+    break;
+  }
+  const qty = marketUnits + contractUnits;
+  const blocked = qty > 0 ? "none" : spotPrice < floorPrice ? "price" : "money";
+  return { qty, marketUnits, contractUnits, takes, blocked };
+}
+
+export function payContractTakes(state: SimState, good: GoodId, takes: Array<{ contractId: string; units: number }>): number {
+  let total = 0;
+  for (const take of takes) {
+    const contract = state.contracts.find((item) => item.id === take.contractId);
+    const buyer = contract ? houseOf(state, contract.buyerId) : undefined;
+    const seller = contract ? houseOf(state, contract.sellerId) : undefined;
+    if (!contract || !buyer || !seller || take.units <= 0) continue;
+    const affordable = Math.floor(Math.min(contract.buyerReserve, buyer.reserved, buyer.credits) / contract.price);
+    const units = Math.min(take.units, contract.qtyPerWindow - contract.delivered, affordable);
+    if (units <= 0) continue;
+    const money = units * contract.price;
+    buyer.credits -= money;
+    buyer.reserved -= money;
+    buyer.flow.purchases += money;
+    contract.buyerReserve -= money;
+    seller.credits += money;
+    seller.flow.sales += money;
+    contract.delivered += units;
+    contract.paidWindow += money;
+    contract.trades.push({ tick: state.tick, qty: units, price: contract.price });
+    if (contract.trades.length > 8) contract.trades.shift();
+    note(state, buyer.id, `Контракт ${contract.id}: принято ${units} ${GOOD_NAME[good]} по ${contract.price} кред. Оплачено ${money} из резерва, не по сегодняшней рыночной цене.`);
+    total += money;
+  }
+  return total;
 }
 
 export function settleContractWindows(state: SimState): void {
@@ -262,8 +296,47 @@ export function isContractStatus(value: unknown): value is Contract["status"] {
   return typeof value === "string" && (STATUSES as readonly string[]).includes(value);
 }
 
-function matchingContract(state: SimState, sellerId: string, buyerId: string, worldId: string, good: GoodId): Contract | undefined {
-  return state.contracts.find((contract) => contract.status === "active" && contract.sellerId === sellerId && contract.buyerId === buyerId && contract.worldId === worldId && contract.good === good && contract.delivered < contract.qtyPerWindow);
+function supplyOrder(ship: Ship, good: GoodId, limit: number, sellerId: string): string[] {
+  const book = ship.supplyFrom?.[good] ?? {};
+  const keys = Object.keys(book).sort();
+  const origins: string[] = [];
+  let left = limit;
+  if (keys.length === 0) {
+    for (let index = 0; index < limit; index += 1) origins.push(sellerId);
+    return origins;
+  }
+  for (const houseId of keys) {
+    let have = book[houseId] ?? 0;
+    while (have > 0 && left > 0) {
+      origins.push(houseId);
+      have -= 1;
+      left -= 1;
+    }
+  }
+  while (left > 0) {
+    origins.push(sellerId);
+    left -= 1;
+  }
+  return origins;
+}
+
+function nextContract(
+  state: SimState,
+  sellerId: string,
+  buyerId: string,
+  worldId: string,
+  good: GoodId,
+  floorPrice: number,
+  reserved: Map<string, number>,
+): Contract | undefined {
+  return state.contracts.find((contract) => {
+    if (contract.status !== "active" || contract.sellerId !== sellerId || contract.buyerId !== buyerId || contract.worldId !== worldId || contract.good !== good) return false;
+    if (contract.price < floorPrice) return false;
+    const taken = reserved.get(contract.id) ?? 0;
+    const left = contract.qtyPerWindow - contract.delivered - taken;
+    const funded = Math.floor((contract.buyerReserve - taken * contract.price) / contract.price);
+    return left > 0 && funded > 0;
+  });
 }
 
 function closeContractWindow(state: SimState, contract: Contract): void {

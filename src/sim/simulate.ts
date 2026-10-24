@@ -1,5 +1,5 @@
 import { foodRouteNeedsFuel, planAi, refreshFoodFuel } from "./ai";
-import { acceptContractUnits, contractRoom, foreignSupply, settleContractWindows } from "./contracts";
+import { payContractTakes, planSale, settleContractWindows } from "./contracts";
 import { dispatch, dedicatedColonyRoute, foundColony, syncColonyRoute } from "./commands";
 import { RECIPES, SHIP_CLASSES } from "./config";
 import { GOODS, cloneGoods, emptyGoods, sumGoods, type GoodId } from "./goods";
@@ -402,11 +402,6 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     const sellerHouse = action.mode === "sell" ? ship.houseId : world.ownerId;
     const buyerHouse = action.mode === "sell" ? world.ownerId : ship.houseId;
     if (action.mode === "sell" && ship.cargo[action.good] - action.keep <= 0) continue;
-    if (action.mode === "sell" && price < action.price) {
-      ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
-      hold = true;
-      continue;
-    }
     if (action.mode === "buy" && price > action.price) {
       ship.stopReason = `цена ${goodLabel(action.good)} ${price} выше предела ${action.price}`;
       if (roomCargo > 0) hold = true;
@@ -420,14 +415,17 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
     const buyer = houseOf(state, buyerHouse);
     const seller = houseOf(state, sellerHouse);
     if (!buyer || !seller || price <= 0) continue;
+    const sale = action.mode === "sell" && world.ownerId
+      ? planSale(state, ship, world.ownerId, world.id, action.good, Math.min(wanted, available, room), price, action.price)
+      : null;
     const affordable = Math.floor(availableCredits(buyer) / price);
-    const contractCap = action.mode === "sell" && world.ownerId
-      ? Math.min(contractRoom(state, ship.houseId, world.ownerId, world.id, action.good), foreignSupply(ship, action.good, world.ownerId))
-      : 0;
-    const qty = Math.min(wanted, available, room, affordable + contractCap);
+    const qty = sale ? sale.qty : Math.min(wanted, available, room, affordable);
     if (qty <= 0) {
       if (available <= 0) ship.stopReason = `нет товара с учётом резерва: ${goodLabel(action.good)}`;
-      else if (affordable <= 0) {
+      else if (sale?.blocked === "price") {
+        ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
+        hold = true;
+      } else if (affordable <= 0 || sale?.blocked === "money") {
         ship.stopReason = "у покупателя нет денег";
         if (!(action.mode === "buy" && room <= 0)) hold = true;
       } else if (action.mode === "buy") {
@@ -440,6 +438,18 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       }
       continue;
     }
+    const marketUnits = sale ? sale.marketUnits : qty;
+    const marketMoney = marketUnits * price;
+    if (marketMoney > 0 && !moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, marketMoney)) {
+      ship.stopReason = "у покупателя нет денег";
+      hold = true;
+      continue;
+    }
+    const contractMoney = sale ? payContractTakes(state, action.good, sale.takes) : 0;
+    if (marketMoney > 0) {
+      buyer.flow.purchases += marketMoney;
+      seller.flow.sales += marketMoney;
+    }
     moveGoods(sellerPile, buyerPile, action.good, qty);
     ship.visitMoved[index] = moved + qty;
     if (action.mode === "buy") rememberSupply(ship, action.good, world.ownerId ?? ship.houseId, qty);
@@ -448,17 +458,6 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): boo
       const slices = drawSupply(ship, action.good, qty);
       const local = slices.filter((slice) => slice.houseId === world.ownerId).reduce((sum, slice) => sum + slice.qty, 0);
       deliveredQty = qty - local;
-    }
-    const contractUnits = action.mode === "sell" ? Math.min(deliveredQty, contractCap) : 0;
-    const marketUnits = qty - contractUnits;
-    const contractMoney = contractUnits > 0 && world.ownerId
-      ? acceptContractUnits(state, ship.houseId, world.ownerId, world.id, action.good, contractUnits)
-      : 0;
-    const marketMoney = marketUnits * price;
-    if (marketMoney > 0) moveCredits(state, { kind: "house", id: buyer.id }, { kind: "house", id: seller.id }, marketMoney);
-    if (marketMoney > 0) {
-      buyer.flow.purchases += marketMoney;
-      seller.flow.sales += marketMoney;
     }
     const paid = marketMoney + contractMoney;
     rememberTrade(buyer, seller, paid);

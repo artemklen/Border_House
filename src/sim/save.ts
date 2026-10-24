@@ -44,12 +44,13 @@ export function deserialize(raw: string): SimState {
   if (!state || !Number.isInteger(state.tick) || state.tick < 0 || typeof state.rngState !== "number") {
     throw new SaveError("Файл сохранения повреждён: нет состояния симуляции.");
   }
-  migrateSave(state);
+  migrateSave(state, file.version);
   assertPlayable(state);
   return state;
 }
 
-function migrateSave(state: SimState): void {
+function migrateSave(state: SimState, version: number): void {
+  if (version !== 1) return;
   state.version = 2;
   if (!Array.isArray(state.contracts)) state.contracts = [];
   if (Array.isArray(state.houses)) {
@@ -222,6 +223,16 @@ function assertPlayable(state: SimState): void {
       throw new SaveError("Файл сохранения повреждён: числа контракта повреждены.");
     }
     if (!Array.isArray(contract.history) || !Array.isArray(contract.trades)) throw new SaveError("Файл сохранения повреждён: у контракта нет истории.");
+    for (const item of contract.history) {
+      if (!item || !requireInt(item.window, 0, 6) || !requireInt(item.delivered, 0, 100000) || !requireInt(item.paid, 0, 1_000_000_000) || !requireInt(item.penalty, 0, 1_000_000_000)) {
+        throw new SaveError("Файл сохранения повреждён: история контракта повреждена.");
+      }
+    }
+    for (const trade of contract.trades) {
+      if (!trade || !requireInt(trade.tick, 0, 1_000_000_000) || !requireInt(trade.qty, 1, 100000) || !requireInt(trade.price, 1, 10000)) {
+        throw new SaveError("Файл сохранения повреждён: приёмка контракта повреждена.");
+      }
+    }
     if (contract.status === "proposed" || contract.status === "active") {
       reservedByHouse.set(contract.sellerId, (reservedByHouse.get(contract.sellerId) ?? 0) + contract.deposit);
       reservedByHouse.set(contract.buyerId, (reservedByHouse.get(contract.buyerId) ?? 0) + contract.buyerReserve);
