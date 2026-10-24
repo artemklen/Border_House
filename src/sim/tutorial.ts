@@ -1,4 +1,7 @@
+import { GOOD_NAME } from "./goods";
+import { contractStatusLabel, shipStatusLabel, situationChoiceLabel, situationKindLabel } from "./labels";
 import { foodCover } from "./mutate";
+import { PATH_LABEL } from "./specialty";
 import type { CommandResult, House, SimState, World } from "./types";
 
 export type LessonId = "supply" | "voyage" | "cash" | "contract" | "queue" | "development" | "politics";
@@ -82,7 +85,7 @@ function lessonStatus(state: SimState, house: House, id: LessonId): { done: bool
     const ship = state.ships.find((item) => item.houseId === house.id && (item.traveled > 0 || item.status === "transit"));
     return {
       done: Boolean(ship),
-      detail: ship ? `${ship.name}: пройдено ${ship.traveled}, статус ${ship.status}.` : "Свои корабли ещё стоят.",
+      detail: ship ? `${ship.name}: пройдено ${ship.traveled}, ${shipStatusLabel(ship.status)}.` : "Свои корабли ещё стоят.",
       focusWorldId: ship?.worldId ?? focus,
     };
   }
@@ -99,7 +102,7 @@ function lessonStatus(state: SimState, house: House, id: LessonId): { done: bool
     const contract = state.contracts.find((item) => (item.sellerId === house.id || item.buyerId === house.id) && contractMoved(item));
     return {
       done: Boolean(contract),
-      detail: contract ? `Контракт ${contract.id}: принято ${contract.delivered} в текущем окне, статус ${contract.status}.` : "Поставки по контракту ещё нет.",
+      detail: contract ? contractLesson(state, contract) : "Поставки по контракту ещё нет.",
       focusWorldId: contract?.worldId ?? focus,
     };
   }
@@ -124,7 +127,7 @@ function lessonStatus(state: SimState, house: House, id: LessonId): { done: bool
   const situation = state.situations.find((item) => item.houseId === house.id && item.status === "resolved" && item.choice);
   return {
     done: Boolean(situation),
-    detail: situation ? `Решение «${situation.choice}» по ситуации ${situation.kind}.` : "Выбора по открытой ситуации ещё нет.",
+    detail: situation ? `Решение «${situationChoiceLabel(situation.choice)}» по ситуации «${situationKindLabel(situation.kind)}».` : "Выбора по открытой ситуации ещё нет.",
     focusWorldId: situation?.worldId ?? focus,
   };
 }
@@ -137,7 +140,16 @@ function contractMoved(contract: SimState["contracts"][number]): boolean {
   return contract.delivered > 0 || contract.history.some((item) => item.delivered > 0);
 }
 
+function contractLesson(state: SimState, contract: SimState["contracts"][number]): string {
+  const seller = state.houses.find((house) => house.id === contract.sellerId)?.name ?? "продавец";
+  const buyer = state.houses.find((house) => house.id === contract.buyerId)?.name ?? "покупатель";
+  const world = state.worlds.find((item) => item.id === contract.worldId)?.name;
+  const where = world ? ` в «${world}»` : "";
+  return `Поставка ${GOOD_NAME[contract.good]}: ${seller} → ${buyer}${where}. Принято ${contract.delivered} в текущем окне, ${contractStatusLabel(contract.status)}.`;
+}
+
 function developmentDetail(world: World): string {
-  const project = world.development.project ? `, стройка ${world.development.project.path} ещё ${world.development.project.remainingDays} дн.` : "";
-  return `«${world.name}»: путь ${world.development.path ?? "нет"}, уровень ${world.development.level}${project}.`;
+  const path = world.development.path ? PATH_LABEL[world.development.path] : "нет";
+  const project = world.development.project ? `, стройка ${PATH_LABEL[world.development.project.path]} ещё ${world.development.project.remainingDays} дн.` : "";
+  return `«${world.name}»: путь ${path}, уровень ${world.development.level}${project}.`;
 }

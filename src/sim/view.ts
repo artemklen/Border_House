@@ -171,8 +171,14 @@ export function hintLines(state: SimState): string[] {
   const idle = state.ships.find((ship) => ship.houseId === player.id && ship.status === "docked" && !ship.routeId);
   if (idle && routes.length > 0) tips.push(`${idle.name} стоит без маршрута. Назначение в «Флоте» не телепортирует груз: корабль поедет от текущего мира.`);
   const stuck = bottlenecks(state, player.id)[0];
-  if (stuck) tips.push(`Узкое место: ${stuck.title}. ${stuck.detail}`);
+  if (stuck) tips.push(hintSentence(stuck.title, stuck.detail));
   return tips.slice(0, 3);
+}
+
+export function hintSentence(title: string, detail: string): string {
+  const trimmed = title.trim();
+  const seam = /[.!?…]$/.test(trimmed) ? " " : ". ";
+  return `Узкое место: ${trimmed}${seam}${detail}`;
 }
 
 function firstVoyageHint(state: SimState, player: House): string {
