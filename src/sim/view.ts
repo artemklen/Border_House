@@ -167,14 +167,35 @@ export function hintLines(state: SimState): string[] {
   if (!player) return [];
   const tips: string[] = [];
   const routes = state.routes.filter((route) => route.houseId === player.id);
-  if (routes.length === 0) {
-    tips.push("Хлебный Пояс уже печёт продовольствие. Откройте «Флот», соберите маршрут из двух миров и назначьте грузовоз. Короткий путь к Порту Лиры пересекает Заставу Корвус.");
-  }
+  if (routes.length === 0) tips.push(firstVoyageHint(state, player));
   const idle = state.ships.find((ship) => ship.houseId === player.id && ship.status === "docked" && !ship.routeId);
   if (idle && routes.length > 0) tips.push(`${idle.name} стоит без маршрута. Назначение в «Флоте» не телепортирует груз: корабль поедет от текущего мира.`);
   const stuck = bottlenecks(state, player.id)[0];
   if (stuck) tips.push(`Узкое место: ${stuck.title}. ${stuck.detail}`);
   return tips.slice(0, 3);
+}
+
+function firstVoyageHint(state: SimState, player: House): string {
+  const owned = state.worlds.filter((world) => world.ownerId === player.id);
+  const pantry = [...owned].sort((left, right) => right.stock.food - left.stock.food || left.name.localeCompare(right.name, "ru"))[0];
+  const markets = state.worlds
+    .filter((world) => world.ownerId && world.ownerId !== player.id)
+    .sort((left, right) => foodCover(left.population, left.stock.food, state.rules.foodPer100) - foodCover(right.population, right.stock.food, state.rules.foodPer100) || right.population - left.population || left.name.localeCompare(right.name, "ru"));
+  const market = markets.find((world) => world.id !== pantry?.id);
+  const shipWord = state.ships.some((ship) => ship.houseId === player.id && ship.classId === "freighter") ? "грузовоз" : "корабль";
+  if (!pantry) return `Откройте «Флот», соберите маршрут из двух миров и назначьте ${shipWord}.`;
+  const bakes = pantry.buildings.some((building) => (building.kind === "mill" || building.kind === "farm") && building.remainingDays <= 0) && (pantry.stock.food > 0 || pantry.stock.grain > 0);
+  const stockLine = bakes
+    ? `«${pantry.name}» уже печёт продовольствие.`
+    : pantry.stock.food > 0
+      ? `«${pantry.name}» держит продовольствие.`
+      : `У «${pantry.name}» мало продовольствия на складе.`;
+  let line = `${stockLine} Откройте «Флот», соберите маршрут из двух миров и назначьте ${shipWord}.`;
+  if (!market) return line;
+  const gates = territoriesOnRoute(state, pantry.id, market.id, player.id);
+  if (gates.length > 0) line += ` Короткий путь к «${market.name}» пересекает ${gates.map((world) => `«${world.name}»`).join(" и ")}.`;
+  else line += ` Чужой рынок с коротким запасом — «${market.name}».`;
+  return line;
 }
 
 export function fleetPickId(ship: { id: string; houseId: string; status: string }, playerId: string): string | null {
