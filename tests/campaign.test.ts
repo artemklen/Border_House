@@ -7,6 +7,7 @@ import { audit, foodCover } from "../src/sim/mutate";
 import { deserialize, serialize } from "../src/sim/save";
 import { runTicks, territoriesOnRoute } from "../src/sim/simulate";
 import { lessonViews, nextLesson } from "../src/sim/tutorial";
+import { hintLines } from "../src/sim/view";
 import type { SimState } from "../src/sim/types";
 
 function mustAudit(state: SimState): void {
@@ -206,6 +207,75 @@ describe("сценарии кампании", () => {
     }
   });
 });
+
+describe("подсказка первого рейса", () => {
+  it("в базовой партии называет хлеб, Лиру и заставу, в остальных — только живые миры", () => {
+    const base = hintLines(createGame({ seed: 21, scenario: "base" })).join(" ");
+    expect(base).toContain("«Хлебный Пояс» уже печёт продовольствие");
+    expect(base).toContain("назначьте грузовоз");
+    expect(base).toContain("«Порт Лиры»");
+    expect(base).toContain("«Застава Корвус»");
+    expect(quotedNames(base).every((name) => name === "Флот" || worldNames(createGame({ seed: 21, scenario: "base" })).has(name))).toBe(true);
+
+    for (const state of [
+      createBorderContractScenario(),
+      createCrowdedHarborScenario(),
+      createIndustryDependenceScenario(),
+      createGame({ seed: 9, scenario: "generated", worlds: 12, houses: 3 }),
+    ]) {
+      const hint = hintLines(state).join(" ");
+      const known = worldNames(state);
+      expect(quotedNames(hint).every((name) => name === "Флот" || known.has(name))).toBe(true);
+      expect(hint).not.toContain("Хлебный Пояс");
+      expect(hint).not.toContain("Порт Лиры");
+      expect(hint).not.toContain("Застава Корвус");
+    }
+  });
+
+  it("не называет выпечкой ферму и коротким запас, которого хватает на сотни дней", () => {
+    const generated = createGame({ seed: 9, scenario: "generated", worlds: 12, houses: 3 });
+    const baked = hintLines(generated).join(" ").match(/«([^»]+)» уже печёт/);
+    if (baked) {
+      const world = generated.worlds.find((item) => item.name === baked[1]);
+      expect(world?.buildings.some((building) => building.kind === "mill" && building.remainingDays <= 0 && world.stock.grain >= 10)).toBe(true);
+    }
+    const industry = hintLines(createIndustryDependenceScenario()).join(" ");
+    expect(industry).toContain("«Рудник» держит продовольствие");
+    expect(industry).toContain("Чужой рынок — «Нива»");
+    expect(industry).not.toContain("печёт");
+    expect(industry).not.toContain("коротким запасом");
+  });
+
+  it("не говорит, что остановленная мельница печёт", () => {
+    const state = createBorderContractScenario();
+    const home = state.worlds.find((world) => world.name === "Усадьба")!;
+    const mill = home.buildings.find((building) => building.kind === "mill")!;
+    expect(hintLines(state).join(" ")).toContain("«Усадьба» уже печёт продовольствие");
+    mill.enabled = false;
+    const hint = hintLines(state).join(" ");
+    expect(hint).toContain("«Усадьба» держит продовольствие");
+    expect(hint).not.toContain("печёт");
+  });
+
+  it("не спорит с остановкой мельницы после тика без денег", () => {
+    const state = createBorderContractScenario();
+    const player = state.houses.find((house) => house.player)!;
+    player.credits = 0;
+    runTicks(state, 1);
+    player.credits = 8000;
+    const hint = hintLines(state).join(" ");
+    expect(hint).not.toContain("печёт");
+    expect(hint).toContain("нет денег на содержание");
+  });
+});
+
+function quotedNames(text: string): string[] {
+  return [...text.matchAll(/«([^»]+)»/g)].map((match) => match[1]);
+}
+
+function worldNames(state: SimState): Set<string> {
+  return new Set(state.worlds.map((world) => world.name));
+}
 
 function scoreBorder(throughGate: boolean): { state: SimState; delivered: number; toll: number; fuel: number; credits: number; cover: number } {
   const state = createBorderContractScenario();
