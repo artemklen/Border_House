@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { campaignBrief, createBorderContractScenario, createCrowdedHarborScenario, createIndustryDependenceScenario } from "../src/sim/campaign";
+import { emptyGoods } from "../src/sim/goods";
 import { dispatch } from "../src/sim/commands";
 import { createGame } from "../src/sim/create";
 import { audit, foodCover } from "../src/sim/mutate";
@@ -168,6 +169,27 @@ describe("сценарии кампании", () => {
     expect(state.contracts.at(-1)?.status).toBe("proposed");
     runTicks(state, 1);
     expect(state.contracts.at(-1)?.status).not.toBe("proposed");
+  });
+
+  it("отмена контракта не стирает уже принятое, а своя руда не считается чужой едой", () => {
+    const border = createBorderContractScenario();
+    const contract = border.contracts[0];
+    contract.delivered = 6;
+    expect(campaignBrief(border)?.measures.find((item) => item.id === "delivery")?.value).toBe("6 ед.");
+    expect(dispatch(border, { type: "cancelContract", houseId: border.houses.find((house) => house.player)!.id, contractId: contract.id }).ok).toBe(true);
+    expect(campaignBrief(border)?.measures.find((item) => item.id === "delivery")?.value).toBe("6 ед.");
+
+    const industry = createIndustryDependenceScenario();
+    const player = industry.houses.find((house) => house.player)!;
+    const mine = industry.worlds.find((world) => world.id === "i-mine")!;
+    const own = emptyGoods();
+    own.ore = 4;
+    mine.lastImported[player.id] = own;
+    expect(campaignBrief(industry)?.measures.find((item) => item.id === "partner")?.done).toBe(false);
+    const foreign = emptyGoods();
+    foreign.food = 3;
+    mine.lastImported["other-house"] = foreign;
+    expect(campaignBrief(industry)?.measures.find((item) => item.id === "partner")?.done).toBe(true);
   });
 
   it("каждый новый сценарий держит инварианты 3600 дней", () => {

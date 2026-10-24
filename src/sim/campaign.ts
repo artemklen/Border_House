@@ -159,7 +159,7 @@ export function campaignBrief(state: SimState): ScenarioBrief | null {
 
 function countedDeliveries(contract: { status: string; delivered: number; history: Array<{ delivered: number }> }): number {
   const history = contract.history.reduce((sum, item) => sum + item.delivered, 0);
-  if (contract.status === "completed" || contract.status === "broken" || contract.status === "cancelled") return history;
+  if (contract.status === "completed" || contract.status === "broken") return history;
   return history + contract.delivered;
 }
 
@@ -169,7 +169,7 @@ function borderBrief(state: SimState): ScenarioBrief {
   const delivered = contract ? countedDeliveries(contract) : 0;
   const capital = state.worlds.find((world) => world.id === player?.capitalId);
   const cover = capital && player ? foodCover(capital.population, capital.stock.food, state.rules.foodPer100) : 0;
-  const toll = state.routes.filter((route) => route.houseId === player?.id).reduce((sum, route) => sum + route.cost + route.lastCost, 0);
+  const toll = player ? player.flow.tariffsOut + player.lastFlow.tariffsOut : 0;
   const bypass = state.routes.some((route) => route.houseId === player?.id && route.stops.some((stop) => stop.worldId === "b-beacon") && route.stops.some((stop) => stop.worldId === "b-market"));
   return {
     id: "border-contract",
@@ -178,7 +178,7 @@ function borderBrief(state: SimState): ScenarioBrief {
     measures: [
       { id: "delivery", title: "Есть принятая поставка", formula: "сумма delivered по окнам контракта > 0", done: delivered > 0, value: `${delivered} ед.` },
       { id: "cover", title: "Столица сыта не меньше 12 дней", formula: "запас × 100 / (население × еда на 100) ≥ 12", done: cover >= 12, value: `${cover} дн.` },
-      { id: "path", title: "Выбран путь: пошлина или обход", formula: "стоимость маршрута за это или прошлое окно > 0, либо маршрут через Обходной маяк на Рынок Лиры", done: toll > 0 || bypass, value: toll > 0 ? `пошлины в окне ${toll}` : bypass ? "обход заложен" : "маршрут не выбран" },
+      { id: "path", title: "Выбран путь: пошлина или обход", formula: "пошлины дома за это или прошлое окно > 0, либо маршрут через Обходной маяк на Рынок Лиры. Покупки в эту сумму не входят", done: toll > 0 || bypass, value: toll > 0 ? `пошлины в окне ${toll}` : bypass ? "обход заложен" : "маршрут не выбран" },
     ],
   };
 }
@@ -210,6 +210,7 @@ function industryBrief(state: SimState): ScenarioBrief {
   const path = Boolean(mine && ((mine.development.path === "industrial" && mine.development.level > 0) || mine.development.project?.path === "industrial"));
   const alloys = (mine?.produced.alloys ?? 0) + (mine?.lastProduced.alloys ?? 0) + (mine?.stock.alloys ?? 0);
   const partners = player ? Object.values(player.tradeWith).filter((value) => value > 0).length : 0;
+  const foreignFood = Boolean(mine && player && [mine.imported, mine.lastImported].some((book) => Object.entries(book).some(([houseId, goods]) => houseId !== player.id && goods.food > 0)));
   return {
     id: "industry-dependence",
     title: "Промышленная зависимость",
@@ -217,7 +218,7 @@ function industryBrief(state: SimState): ScenarioBrief {
     measures: [
       { id: "path", title: "Промышленный путь заложен или даёт сплав", formula: "путь industrial с уровнем или стройкой, либо произведённые/запасные сплавы > 0", done: Boolean(path) || alloys > 0, value: path ? `уровень ${mine?.development.level ?? 0}` : `сплавы ${alloys}` },
       { id: "cover", title: "Рудник сыт не меньше 8 дней", formula: "запас × 100 / (население × еда на 100) ≥ 8", done: cover >= 8, value: `${cover} дн.` },
-      { id: "partner", title: "Есть след торговли или второй запас еды", formula: "tradeWith > 0 или на своём корабле/мире еда пришла не только со склада рудника", done: partners > 0 || Object.keys(mine?.lastImported ?? {}).length > 0, value: partners > 0 ? `партнёров ${partners}` : "торговли ещё нет" },
+      { id: "partner", title: "Есть след торговли или чужая еда", formula: "tradeWith > 0 или на Рудник пришла еда от другого дома", done: partners > 0 || foreignFood, value: partners > 0 ? `партнёров ${partners}` : foreignFood ? "еда от другого дома" : "торговли ещё нет" },
     ],
   };
 }
