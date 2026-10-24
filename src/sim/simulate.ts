@@ -314,10 +314,10 @@ function serviceDock(state: SimState, ship: Ship): void {
   const here = routeNow && planned && planned.worldId === world.id ? planned : routeNow?.stops.find((stop) => stop.worldId === world.id);
   const pickup = here?.actions.some((action) => action.good !== "fuel" && (action.mode === "load" || action.mode === "buy"));
   if (routeNow && !pickup) ship.loadWait = 0;
-  const verdict = routeNow && pickup ? holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity) : "ready";
+  const verdict = routeNow && pickup ? holdForLoad(ship, routeNow, SHIP_CLASSES[ship.classId].capacity) : "open";
   if (verdict === "waiting") return;
   if (stopResult.deliveryHeld) return;
-  if (hold && verdict !== "expired") return;
+  if (hold && verdict !== "expired" && verdict !== "met") return;
   if (routeNow) depart(state, ship, routeNow);
 }
 
@@ -467,6 +467,7 @@ function applyStop(state: SimState, ship: Ship, world: World, route: Route): { h
       else if (capped.limited && capped.qty === 0) {
         ship.stopReason = "лимит порта на сегодня исчерпан";
         hold = true;
+        if (action.mode === "sell") deliveryHeld = true;
       }       else if (sale?.blocked === "price") {
         ship.stopReason = `цена ${goodLabel(action.good)} ${price} ниже предела ${action.price}`;
         hold = true;
@@ -583,7 +584,8 @@ export function depart(state: SimState, ship: Ship, route: Route): void {
   if (!origin || !dest) return;
   if (dest.id === origin.id) {
     ship.stopIndex = nextIndex;
-    ship.stopReason = null;
+    const elsewhere = route.stops.some((stop) => stop.worldId !== origin.id);
+    ship.stopReason = elsewhere ? null : "стоянка без перехода";
     return;
   }
   if (accessDenied(state, ship.houseId, dest)) {
