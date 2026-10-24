@@ -20,7 +20,7 @@ import {
   tariffBetween,
   worldOf,
 } from "./mutate";
-import { SPEED_PARTS, capPort, expandPort, notePortMove } from "./port";
+import { SPEED_COST, SPEED_PARTS, capPort, expandPort, notePortMove } from "./port";
 import type {
   CommandResult,
   GoalKind,
@@ -144,7 +144,7 @@ export function choicePreview(situation: Situation, choice: SituationChoice): st
   }
   if (situation.kind === "congestedPort" && choice === "pay") {
     return [
-      "Начать ускорение обработки порта: кредиты уйдут населению, комплектующие спишутся со склада.",
+      `Начать ускорение обработки порта: ${SPEED_COST} кред. уйдут населению, ${SPEED_PARTS} комплектующих спишутся со склада.`,
       "Если стройка уже идёт или ресурсов нет, решение не принимается и очередь остаётся. Готовое ускорение само не отменяется через срок решения.",
       once,
     ];
@@ -199,6 +199,7 @@ export function advanceSituations(state: SimState): void {
 export function situationDecision(state: SimState, house: House, situation: Situation): SituationChoice {
   const preferred = preferredChoice(state, house, situation);
   if (!situationBlock(state, situation, preferred)) return preferred;
+  if (situation.kind === "foodDependence" && preferred === "yield" && situation.otherId && proposedTreaty(state, house.id, situation.otherId)) return "yield";
   if (preferred !== "refuse" && !situationBlock(state, situation, "refuse")) return "refuse";
   return preferred;
 }
@@ -243,6 +244,7 @@ function situationBlock(state: SimState, situation: Situation, choice: Situation
   }
   if (situation.kind === "foodDependence" && choice === "yield") {
     if (!other) return "нет контрагента";
+    if (proposedTreaty(state, house.id, other.id)) return "предложение договора ещё не принято";
   }
   if (situation.kind === "foodDependence" && choice === "pay") {
     return cargoPurchaseBlock(state, house, other, situation);
@@ -770,12 +772,20 @@ function exportRoute(state: SimState, house: House): Route | undefined {
   });
 }
 
-function activeTreaty(state: SimState, aId: string, bId: string): boolean {
+function pairTreaty(state: SimState, aId: string, bId: string, status: "active" | "proposed"): boolean {
   return state.treaties.some(
     (treaty) =>
-      (treaty.status === "active" || treaty.status === "proposed") &&
+      treaty.status === status &&
       ((treaty.proposerId === aId && treaty.targetId === bId) || (treaty.proposerId === bId && treaty.targetId === aId)),
   );
+}
+
+function activeTreaty(state: SimState, aId: string, bId: string): boolean {
+  return pairTreaty(state, aId, bId, "active");
+}
+
+function proposedTreaty(state: SimState, aId: string, bId: string): boolean {
+  return pairTreaty(state, aId, bId, "proposed");
 }
 
 function contractReliability(state: SimState, aId: string, bId: string): number {

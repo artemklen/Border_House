@@ -99,6 +99,9 @@ describe("политические решения", () => {
     port.port.queue = [foreign.id, local.id];
     advanceSituations(crowded);
     expect(crowded.situations.map((item) => item.kind)).toEqual(["congestedPort"]);
+    const upgrade = choicePreview(crowded.situations[0], "pay").join(" ");
+    expect(upgrade).toContain("1600");
+    expect(upgrade).toContain("6 комплектующих");
     port.port.queue = [];
     crowded.situations = [];
     advanceSituations(crowded);
@@ -505,6 +508,20 @@ describe("политические решения", () => {
     advanceSituations(delayed);
     expect(delayed.situations.some((item) => item.kind === "successionReview" && item.status === "open")).toBe(true);
     expect(heir.successionPending).toBe(false);
+
+    const offered = foodCase(0);
+    advanceSituations(offered);
+    const hungryHouse = offered.houses[0];
+    const barn = offered.houses[1];
+    dispatch(offered, { type: "proposeTreaty", houseId: barn.id, otherId: hungryHouse.id, kind: "supply", good: "food", tariffBps: 200, qtyPerWindow: 10, duration: 24 });
+    const early = dispatch(offered, { type: "resolveSituation", houseId: hungryHouse.id, situationId: offered.situations[0].id, choice: "yield" });
+    expect(early.ok).toBe(false);
+    expect(offered.situations[0].status).toBe("open");
+    expect(offered.treaties).toHaveLength(1);
+    expect(offered.treaties[0].status).toBe("proposed");
+    expect(offered.tariffGrants).toHaveLength(0);
+    expect(situationDecision(offered, hungryHouse, offered.situations[0])).toBe("yield");
+    expect(hungryHouse.embargo[barn.id]).not.toBe(true);
   });
 });
 
