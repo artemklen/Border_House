@@ -523,6 +523,34 @@ describe("политические решения", () => {
     expect(situationDecision(offered, hungryHouse, offered.situations[0])).toBe("yield");
     expect(hungryHouse.embargo[barn.id]).not.toBe(true);
   });
+
+  it("спор смотрит голодного гостя за сытым, а пересмотр обновляет текст договора", () => {
+    const both = createCrisisScenario();
+    const gate = both.worlds.find((world) => world.id === "c-port")!;
+    const hungryGuest = both.houses[1];
+    const fed = endowHouse(both, { name: "Сытый", color: "#6a6", crest: "СЫ", profile: "merchant", player: false, credits: 2000 });
+    const fedHome = endowWorld(both, { id: "c-fed", name: "Сытый дом", specialty: "дом", x: 40, y: 40, ownerId: fed.id, population: 20, popMoneyPerCapita: 2, stock: { food: 80 } });
+    fed.capitalId = fedHome.id;
+    const fedShip = placeShip(both, fed.id, gate, "skiff", 5);
+    gate.port.berth = [fedShip.id, both.ships[0].id];
+    both.situations = [];
+    advanceSituations(both);
+    const dispute = both.situations.find((item) => item.kind === "tariffDispute");
+    expect(dispute?.otherId).toBe(hungryGuest.id);
+    expect(dispute?.shipId).toBe(both.ships[0].id);
+
+    const shown = successionCase(true);
+    shown.treaties[0].tariffBps = 900;
+    shown.treaties[0].duration = 24;
+    shown.treaties[0].endTick = 24;
+    shown.treaties[0].note = "старые 9% на 24 дн.";
+    runTicks(shown, 1);
+    const review = shown.situations.find((item) => item.kind === "successionReview")!;
+    dispatch(shown, { type: "resolveSituation", houseId: shown.houses[0].id, situationId: review.id, choice: "yield" });
+    expect(shown.treaties[0].note).toContain("2%");
+    expect(shown.treaties[0].note).toContain("48 дн.");
+    expect(shown.treaties[0].note).not.toContain("9%");
+  });
 });
 
 function foodCase(capitalFood: number): SimState {

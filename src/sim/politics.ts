@@ -1,3 +1,4 @@
+import { treatyText } from "./commands";
 import { SHIP_CLASSES } from "./config";
 import { GOOD_NAME, sumGoods, type GoodId } from "./goods";
 import {
@@ -384,6 +385,9 @@ function applyChoice(state: SimState, house: House, situation: Situation, choice
     treaty.duration = Math.min(360, treaty.duration + situation.days);
     treaty.tariffBps = Math.min(treaty.tariffBps, situation.tariffBps);
     if (treaty.kind === "supply") alignSupplyGrant(state, treaty);
+    const proposer = houseOf(state, treaty.proposerId);
+    const target = houseOf(state, treaty.targetId);
+    if (proposer && target) treaty.note = treatyText(treaty.kind, proposer.name, target.name, treaty.tariffBps, treaty.good, treaty.qtyPerWindow, treaty.duration, state.rules.window);
     if (other) shiftRelation(state, house.id, other.id, 4);
     note(state, house.id, `${SITUATION_LABEL[situation.kind]}: договор продлён на ${situation.days} дн., пошлина не выше ${situation.tariffBps / 100}%. Отношения +4.`);
     return null;
@@ -474,8 +478,8 @@ function openFoodDependence(state: SimState, house: House): void {
 function openTariffDispute(state: SimState, house: House): void {
   for (const world of state.worlds) {
     if (world.ownerId !== house.id) continue;
-    const ship = foreignShipAt(state, world, house.id);
-    if (!ship) continue;
+    let opened = false;
+    for (const ship of foreignShipsAt(state, world, house.id)) {
     const other = houseOf(state, ship.houseId);
     const capital = worldOf(state, other?.capitalId ?? null);
     if (!other || !capital) continue;
@@ -498,7 +502,10 @@ function openTariffDispute(state: SimState, house: House): void {
       qty: FOOD_QTY,
       good: "food",
     });
-    return;
+    opened = true;
+    break;
+    }
+    if (opened) return;
   }
 }
 
@@ -742,13 +749,17 @@ function dockedShip(state: SimState, houseId: string, worldId: string): Ship | u
   return state.ships.find((ship) => ship.houseId === houseId && ship.worldId === worldId && ship.status === "docked");
 }
 
-function foreignShipAt(state: SimState, world: World, ownerId: string): Ship | undefined {
-  const ids = [...world.port.berth, ...world.port.queue];
-  for (const id of ids) {
+function foreignShipsAt(state: SimState, world: World, ownerId: string): Ship[] {
+  const ships: Ship[] = [];
+  for (const id of [...world.port.berth, ...world.port.queue]) {
     const ship = shipOf(state, id);
-    if (ship && ship.houseId !== ownerId) return ship;
+    if (ship && ship.houseId !== ownerId) ships.push(ship);
   }
-  return undefined;
+  return ships;
+}
+
+function foreignShipAt(state: SimState, world: World, ownerId: string): Ship | undefined {
+  return foreignShipsAt(state, world, ownerId)[0];
 }
 
 function foreignExport(state: SimState, house: House, route: Route): { world: World; good: GoodId } | undefined {
