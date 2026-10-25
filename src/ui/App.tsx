@@ -1,73 +1,87 @@
 import { useEffect, useRef, useState } from "react";
 import { createClock, planFrame, type SpeedId } from "../sim/clock";
 import { dispatch, planBuild, planShip, treatyText } from "../sim/commands";
-import { contractEstimate, contractRisks } from "../sim/contracts";
 import { RECIPES, SHIP_CLASSES } from "../sim/config";
 import { createBorderContractScenario, createCrowdedHarborScenario, createIndustryDependenceScenario, campaignBrief } from "../sim/campaign";
 import { createGame } from "../sim/create";
 import { createCrisisScenario, createExpansionScenario, createGrainScenario, createSuccessionScenario } from "../sim/diagnostics";
-import { GOODS, GOOD_NAME, type GoodId } from "../sim/goods";
 import { foodCover, houseOf, worldOf } from "../sim/mutate";
-import { BERTH_COST, BERTH_DAYS, BERTH_PARTS, BERTH_UPKEEP, SPEED_COST, SPEED_DAYS, SPEED_PARTS, SPEED_UPKEEP, effectiveBerths, effectiveThroughput, portEstimate } from "../sim/port";
-import { contractStatusLabel, officeLine, personRoleLabel, shipStatusLabel, treatyStatusLabel } from "../sim/labels";
-import { CHOICE_LABEL, SITUATION_LABEL, choicePreview, describeGoal } from "../sim/politics";
-import { PATH_LABEL, developmentBlock, developmentText, levelCost, transitThroughputBonus } from "../sim/specialty";
+import { BERTH_COST, BERTH_DAYS, BERTH_PARTS, SPEED_COST, SPEED_DAYS, SPEED_PARTS } from "../sim/port";
+import { CHOICE_LABEL, SITUATION_LABEL, choicePreview } from "../sim/politics";
+import { PATH_LABEL, developmentBlock, levelCost } from "../sim/specialty";
 import type { DevelopmentPath, SituationChoice } from "../sim/types";
 import { deserialize, serialize, SaveError, storeSave } from "../sim/save";
 import { tick } from "../sim/simulate";
 import { classifyHotkeyTarget, nextSpaceClaim, releaseClaimedSpace, routeTimeHotkey, type FocusFrom } from "./hotkeys";
 import { lessonViews } from "../sim/tutorial";
-import type { Command, Flow, RouteStop, SimState, StopAction } from "../sim/types";
+import type { Command, RouteStop, SimState, StopAction } from "../sim/types";
 import {
   bottlenecks,
-  dependencyRows,
-  explainBuilding,
-  explainPrice,
   colonyShip,
-  explainShip,
-  fleetPickId,
   fleetCommandShipId,
-  foodPerDay,
+  fleetPickId,
   formatDay,
-  governorBlurb,
-  hintLines,
-  treasuryWarning,
   keptOtherHouseId,
   keptShipId,
   keptWorldId,
   pickMapTarget,
-  worldOwnerName,
+  treasuryOutlook,
+  treasuryWarning,
 } from "../sim/view";
-import { drawMap, frameCamera, unproject, type Camera } from "./drawMap";
+import { foodRaw, holdAlarm, treasuryRaw, worsened, type AlarmLevel } from "./alarms";
+import { ConfirmDialog } from "./components";
+import { drawMap, frameCamera, project, unproject, type Camera } from "./drawMap";
+import { liveEffects, makeEffect, motionMs, prefersReducedMotion, type MapEffect } from "./effects";
+import { groupInt, netFlow, signedInt } from "./format";
+import { Icon, Seal } from "./icons";
+import {
+  BuildPanel,
+  CashPanel,
+  DealPanel,
+  FleetPanel,
+  GamePanel,
+  GapPanel,
+  HousePanel,
+  LearnStrip,
+  LogPanel,
+  MenuScreen,
+  PoliticsPanel,
+  TabButton,
+  WorldPanel,
+} from "./panels";
+import { clampSheet, snapSheet } from "./sheet";
+import { createToast, ToastStack, type ToastItem, type ToastTone } from "./toasts";
 
 const AUTOSAVE_KEY = "border-house.autosave.v1";
-const TABS = [
+const GOAL_KEY = "border-house.goal.v1";
+const MAIN_TABS = [
   ["world", "Мир"],
-  ["build", "Стройка"],
   ["fleet", "Флот"],
   ["cash", "Касса"],
-  ["gaps", "Сбои"],
   ["deals", "Договоры"],
+] as const;
+const PHONE_MORE = [
+  ["gaps", "Сбои"],
   ["politics", "Решения"],
+  ["build", "Стройка"],
   ["house", "Дом"],
   ["log", "Журнал"],
   ["game", "Партия"],
 ] as const;
-type TabId = (typeof TABS)[number][0];
+const DESKTOP_MORE = [
+  ["build", "Стройка"],
+  ["house", "Дом"],
+  ["log", "Журнал"],
+  ["game", "Партия"],
+] as const;
+type TabId = (typeof MAIN_TABS)[number][0] | (typeof PHONE_MORE)[number][0];
 type Selection = { kind: "world" | "ship"; id: string } | null;
 
-const FLOW_LABELS: Array<[keyof Flow, string]> = [
-  ["sales", "продажи"],
-  ["purchases", "закупки"],
-  ["tariffsIn", "полученные пошлины"],
-  ["tariffsOut", "уплаченные пошлины"],
-  ["taxes", "налоги"],
-  ["wages", "зарплаты"],
-  ["upkeep", "содержание, денежный сток"],
-  ["construction", "плата за стройку населению"],
-  ["penalties", "штрафы из залога"],
-  ["compensation", "полученные компенсации"],
-];
+interface Snap {
+  credits: number;
+  flowDays: number;
+  ships: Array<{ id: string; status: string }>;
+}
 
 export function App() {
   const [sim, setSim] = useState<SimState | null>(null);
@@ -78,11 +92,22 @@ export function App() {
   const selectedRef = useRef<Selection>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; camX: number; camY: number; moved: boolean } | null>(null);
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
+  const hoverRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverCardRef = useRef<HTMLDivElement | null>(null);
+  const coachRef = useRef<HTMLDivElement | null>(null);
+  const focusRef = useRef<string | null>(null);
+  const routeRef = useRef<string | null>(null);
+  const effectsRef = useRef<MapEffect[]>([]);
+  const snapRef = useRef<Snap | null>(null);
+  const alarmRef = useRef<{ treasury: AlarmLevel; food: AlarmLevel } | null>(null);
+  const treasuryRef = useRef<HTMLButtonElement | null>(null);
+  const toastRef = useRef<(tone: ToastTone, title: string, text: string) => void>(() => {});
   const [selected, setSelected] = useState<Selection>(null);
   const [tab, setTab] = useState<TabId>("world");
   const [paused, setPaused] = useState(true);
   const [speed, setSpeed] = useState<SpeedId>(1);
-  const [message, setMessage] = useState("");
   const [seed, setSeed] = useState(21);
   const [worldCount, setWorldCount] = useState(16);
   const [houseCount, setHouseCount] = useState(4);
@@ -98,15 +123,34 @@ export function App() {
   const [tariff, setTariff] = useState(300);
   const [treatyQty, setTreatyQty] = useState(12);
   const [treatyTariff, setTreatyTariff] = useState(300);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [alarm, setAlarm] = useState<{ treasury: AlarmLevel; food: AlarmLevel }>({ treasury: "ok", food: "ok" });
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [narrow, setNarrow] = useState(() => typeof matchMedia !== "undefined" && matchMedia("(max-width: 599px)").matches);
+  const [sheetH, setSheetH] = useState(168);
+  const sheetDrag = useRef<{ y: number; h: number } | null>(null);
   selectedRef.current = selected;
+
+  function pushToast(tone: ToastTone, title: string, text: string) {
+    setToasts((items) => [...items, createToast(tone, title, text)].slice(-3));
+  }
+  toastRef.current = pushToast;
 
   const mapReady = Boolean(sim);
   useEffect(() => {
+    const query = matchMedia("(max-width: 599px)");
+    const onChange = () => setNarrow(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return undefined;
+    if (!canvas || !simRef.current) return undefined;
     const place = () => {
-      if (!simRef.current || canvas.clientWidth < 2) return;
-      cameraRef.current = frameCamera(simRef.current.worlds, canvas.clientWidth, canvas.clientHeight);
+      const current = simRef.current;
+      if (!current || canvas.clientWidth < 2) return;
+      cameraRef.current = framed(current, canvas.clientWidth, canvas.clientHeight);
     };
     place();
     const frame = requestAnimationFrame(place);
@@ -132,20 +176,88 @@ export function App() {
       if (current) {
         const plan = planFrame(clockRef.current, dt, current.tick, 24);
         if (plan.steps > 0) {
-          for (let index = 0; index < plan.steps; index += 1) tick(current);
-          if (plan.autosave && !storeSave(() => localStorage, AUTOSAVE_KEY, serialize(current))) {
-            setMessage("Автосохранение не записалось. Партия продолжается.");
+          const player = current.houses.find((house) => house.player);
+          const before = snapRef.current;
+          let closed: number | null = null;
+          for (let index = 0; index < plan.steps; index += 1) {
+            const flowDays = player?.flowDays ?? 0;
+            tick(current);
+            if (player && flowDays !== 0 && player.flowDays === 0) closed = netFlow(player.lastFlow);
           }
+          if (plan.autosave && !storeSave(() => localStorage, AUTOSAVE_KEY, serialize(current))) {
+            toastRef.current("warn", "Автосохранение", "Автосохранение не записалось. Партия продолжается.");
+          }
+          if (closed != null) toastRef.current("info", "Окно закрыто", `Итог ${signedInt(closed)} кред. Первое окно на этом балансе часто в минусе.`);
+          if (player && before) noteEffects(current, player.id, before);
+          snapRef.current = takeSnap(current);
           setSim({ ...current });
         }
+        effectsRef.current = liveEffects(effectsRef.current, now);
         const canvas = canvasRef.current;
-        if (canvas) drawMap(canvas, current, cameraRef.current, selectedRef.current?.id ?? null);
+        if (canvas) {
+          const reduced = prefersReducedMotion();
+          drawMap(canvas, current, cameraRef.current, selectedRef.current?.id ?? null, {
+            paused: clockRef.current.paused,
+            alpha: reduced ? 0 : clockRef.current.accumulator,
+            now,
+            reducedMotion: reduced,
+            playerId: current.houses.find((house) => house.player)?.id,
+            effects: effectsRef.current,
+            selectedRouteId: routeRef.current,
+          });
+          placeCoach(current, canvas);
+          placeHover(current, canvas);
+        }
       }
       frame = requestAnimationFrame(loop);
     };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    const timers = toasts.filter((item) => item.tone === "ok" || item.tone === "info").map((item) => window.setTimeout(() => {
+      setToasts((list) => list.filter((toast) => toast.id !== item.id));
+    }, 8000));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [toasts]);
+
+  useEffect(() => {
+    if (!sim) return;
+    const player = sim.houses.find((house) => house.player);
+    if (!player) return;
+    const outlook = treasuryOutlook(sim, player.id);
+    const burn = outlook ? outlook.wages + outlook.upkeep : 0;
+    const rawTreasury = treasuryRaw(outlook?.runway ?? null, outlook?.free ?? 0, burn, netFlow(player.flow));
+    const capital = worldOf(sim, player.capitalId);
+    const foodDays = capital ? foodCover(capital.population, capital.stock.food, sim.rules.foodPer100) : 999;
+    const rawFood = foodDays >= 999 ? "ok" : foodRaw(foodDays);
+    const previous = alarmRef.current;
+    const nextTreasury = previous ? holdAlarm("treasury", previous.treasury, rawTreasury, outlook?.runway ?? 999) : rawTreasury;
+    const nextFood = previous ? holdAlarm("food", previous.food, rawFood, foodDays >= 999 ? 999 : foodDays) : rawFood;
+    alarmRef.current = { treasury: nextTreasury, food: nextFood };
+    if (previous) {
+      if (worsened(previous.treasury, nextTreasury)) {
+        pushToast(nextTreasury === "critical" ? "error" : "warn", nextTreasury === "critical" ? "Казна: критично" : "Казна: мало", treasuryWarning(sim, player.id) ?? "Запас хода казны стал короче.");
+      } else if (previous.treasury !== "ok" && nextTreasury === "ok") {
+        pushToast("ok", "Казна снова в норме", "Запас хода снова длиннее порога.");
+      }
+      if (worsened(previous.food, nextFood)) {
+        pushToast(nextFood === "critical" ? "error" : "warn", "Еда столицы", foodDays <= 3 ? `Голод через ${foodDays} дн.` : `Запас на ${foodDays} дн.`);
+      } else if (previous.food !== "ok" && nextFood === "ok") {
+        pushToast("ok", "Еда столицы снова в норме", `Запас на ${foodDays} дн.`);
+      }
+      if (previous.treasury !== "critical" && nextTreasury === "critical" && !prefersReducedMotion()) {
+        const chip = treasuryRef.current;
+        if (chip) {
+          chip.classList.remove("chip-pulse");
+          void chip.offsetWidth;
+          chip.classList.add("chip-pulse");
+        }
+      }
+    }
+    setAlarm((current) => current.treasury === nextTreasury && current.food === nextFood ? current : { treasury: nextTreasury, food: nextFood });
+  }, [sim]);
 
   useEffect(() => {
     const focusFrom: { current: FocusFrom } = { current: "keyboard" };
@@ -155,6 +267,9 @@ export function App() {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Tab") focusFrom.current = "keyboard";
+      if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
+        setToasts((items) => items.slice(0, -1));
+      }
       const route = routeTimeHotkey({
         code: event.code,
         key: event.key,
@@ -208,27 +323,33 @@ export function App() {
 
   function adopt(next: SimState) {
     clockRef.current = createClock();
+    alarmRef.current = null;
+    effectsRef.current = [];
+    snapRef.current = takeSnap(next);
     setPaused(true);
     setSpeed(1);
     setSim(next);
-    setSelected({ kind: "world", id: next.worlds[0]?.id ?? "" });
+    setSelected({ kind: "world", id: next.houses.find((house) => house.player)?.capitalId || next.worlds[0]?.id || "" });
     setTab("world");
-    setMessage("Партия на паузе. Пробел продолжает время. Подсказки снизу не блокируют приказы.");
     const playerId = next.houses.find((house) => house.player)?.id ?? "";
-    setShipId(keptShipId(next.ships, playerId, shipId));
+    const preferred = next.ships.find((ship) => ship.houseId === playerId && ship.worldId === "w-bread" && ship.classId === "freighter")
+      ?? next.ships.find((ship) => ship.houseId === playerId && ship.status !== "building");
+    setShipId(keptShipId(next.ships, playerId, shipId) || preferred?.id || "");
     setOtherHouse(keptOtherHouseId(next.houses, playerId, otherHouse));
-    setStopWorld(keptWorldId(next.worlds, ""));
+    setStopWorld(next.worlds.some((world) => world.id === "w-bread") ? "w-bread" : keptWorldId(next.worlds, ""));
     setDraftStops([]);
     setConfirm(null);
+    setGoalOpen(localStorage.getItem(GOAL_KEY) !== "1");
     const canvas = canvasRef.current;
-    cameraRef.current = frameCamera(next.worlds, canvas?.clientWidth ?? 0, canvas?.clientHeight ?? 0);
+    cameraRef.current = framed(next, canvas?.clientWidth ?? 0, canvas?.clientHeight ?? 0);
+    pushToast("info", "Партия на паузе", "Пробел продолжает время. 1, 2 и 3 меняют скорость.");
   }
 
   function act(command: Command) {
     const current = simRef.current;
     if (!current) return;
     const result = dispatch(current, command);
-    setMessage(result.ok ? result.reason || "Приказ выполнен." : result.reason);
+    pushToast(result.ok ? "ok" : "error", result.ok ? "Готово" : "Не вышло", result.reason || (result.ok ? "Приказ выполнен." : "Приказ не принят."));
     setSim({ ...current });
     setConfirm(null);
   }
@@ -236,23 +357,86 @@ export function App() {
   function loadRaw(raw: string) {
     try {
       adopt(deserialize(raw));
-      setMessage("Сохранение загружено. Партия на паузе.");
+      pushToast("ok", "Сохранение загружено", "Партия на паузе.");
     } catch (error) {
       const text = error instanceof SaveError ? error.message : "Файл сохранения повреждён.";
-      setMessage(text);
+      pushToast("error", "Не открылось", text);
     }
   }
 
-  const player = sim?.houses.find((house) => house.player) ?? null;
-  const selectedWorld = sim && selected?.kind === "world" ? worldOf(sim, selected.id) : undefined;
-  const selectedShip = sim && selected?.kind === "ship" ? sim.ships.find((ship) => ship.id === selected.id) : undefined;
+  function noteEffects(current: SimState, playerId: string, before: Snap) {
+    const player = current.houses.find((house) => house.id === playerId);
+    const capital = player ? worldOf(current, player.capitalId) : undefined;
+    if (player && capital && player.credits !== before.credits) {
+      effectsRef.current = [...effectsRef.current, makeEffect("popup", capital.x, capital.y, signedInt(player.credits - before.credits), motionMs("--motion-popup", 900))];
+      treasuryRef.current?.classList.add("chip-flash");
+      window.setTimeout(() => treasuryRef.current?.classList.remove("chip-flash"), motionMs("--motion-fast", 120));
+    }
+    for (const ship of current.ships) {
+      const previous = before.ships.find((item) => item.id === ship.id);
+      if (!previous || previous.status === ship.status) continue;
+      const point = worldOf(current, ship.worldId ?? ship.toId);
+      if (!point) continue;
+      if (previous.status === "transit") {
+        effectsRef.current = [...effectsRef.current, makeEffect("arrive", point.x, point.y, "", motionMs("--motion-alarm", 1200))];
+      }
+      if (ship.status === "blocked") {
+        effectsRef.current = [...effectsRef.current, makeEffect("stuck", point.x, point.y, "стоит", motionMs("--motion-alarm", 1200))];
+      }
+    }
+  }
 
-  function pickAt(x: number, y: number) {
+  function placeCoach(current: SimState, canvas: HTMLCanvasElement) {
+    const mark = coachRef.current;
+    const focusId = focusRef.current;
+    if (!mark) return;
+    const world = focusId ? current.worlds.find((item) => item.id === focusId) : undefined;
+    if (!world) {
+      mark.style.visibility = "hidden";
+      return;
+    }
+    const point = project(cameraRef.current, canvas.clientWidth, canvas.clientHeight, world.x, world.y);
+    const outside = point.x < 0 || point.y < 0 || point.x > canvas.clientWidth || point.y > canvas.clientHeight;
+    mark.style.visibility = outside ? "hidden" : "visible";
+    mark.style.transform = `translate(${point.x}px, ${point.y}px)`;
+  }
+
+  function placeHover(current: SimState, canvas: HTMLCanvasElement) {
+    const card = hoverCardRef.current;
+    const hover = hoverRef.current;
+    if (!card) return;
+    if (!hover || dragRef.current) {
+      card.classList.remove("show");
+      return;
+    }
+    const point = unproject(cameraRef.current, canvas.clientWidth, canvas.clientHeight, hover.x, hover.y);
+    const hit = pickMapTarget(current, point, cameraRef.current.zoom);
+    if (!hit) {
+      card.classList.remove("show");
+      return;
+    }
+    const title = card.querySelector("strong");
+    const sub = card.querySelector("span");
+    if (hit.kind === "world") {
+      const world = worldOf(current, hit.id);
+      if (title) title.textContent = world?.name ?? "";
+      if (sub) sub.textContent = world?.specialty ?? "";
+    } else {
+      const ship = current.ships.find((item) => item.id === hit.id);
+      if (title) title.textContent = ship?.name ?? "";
+      if (sub) sub.textContent = ship?.stopReason || ship?.status || "";
+    }
+    card.style.left = `${hover.x + 12}px`;
+    card.style.top = `${hover.y + 12}px`;
+    card.classList.add("show");
+  }
+
+  function pickAt(x: number, y: number, radiusPx?: number) {
     const current = simRef.current;
     const canvas = canvasRef.current;
     if (!current || !canvas) return;
     const point = unproject(cameraRef.current, canvas.clientWidth, canvas.clientHeight, x, y);
-    const hit = pickMapTarget(current, point, cameraRef.current.zoom);
+    const hit = pickMapTarget(current, point, cameraRef.current.zoom, radiusPx);
     if (!hit) return;
     if (hit.kind === "ship") {
       setSelected({ kind: "ship", id: hit.id });
@@ -267,14 +451,39 @@ export function App() {
     setTab("world");
   }
 
+  function zoomBy(factor: number) {
+    cameraRef.current.zoom = Math.max(0.28, Math.min(2.2, cameraRef.current.zoom * factor));
+  }
+
+  const player = sim?.houses.find((house) => house.player) ?? null;
+  const selectedWorld = sim && selected?.kind === "world" ? worldOf(sim, selected.id) : undefined;
+  const selectedShip = sim && selected?.kind === "ship" ? sim.ships.find((ship) => ship.id === selected.id) : undefined;
+  const commandShipId = player ? fleetCommandShipId(selectedShip, player.id, shipId) : shipId;
+  routeRef.current = (selectedShip?.routeId ?? sim?.ships.find((ship) => ship.id === commandShipId)?.routeId) || null;
+  const lessons = sim ? lessonViews(sim) : [];
+  const currentLesson = lessons.find((lesson) => !lesson.done) ?? null;
+  focusRef.current = sim && !sim.tutorial.skipped ? currentLesson?.focusWorldId ?? null : null;
+  const gapCount = sim && player ? bottlenecks(sim, player.id).length : 0;
+  const decisionCount = sim && player ? sim.situations.filter((item) => item.houseId === player.id && item.status === "open").length : 0;
+  const moreLabel = [...DESKTOP_MORE, ...PHONE_MORE].find(([id]) => id === tab)?.[1];
+
+  const outlook = sim && player ? treasuryOutlook(sim, player.id) : null;
+  const flow = player ? netFlow(player.flow) : 0;
+  const capital = sim && player ? worldOf(sim, player.capitalId) : undefined;
+  const foodDays = capital && sim ? foodCover(capital.population, capital.stock.food, sim.rules.foodPer100) : 999;
+  const treasurySub = outlook
+    ? `${flow < 0 ? "↓" : "↑"} ${signedInt(flow)} за окно${alarm.treasury === "critical" ? ` · критично, на ${outlook.runway} дн.` : alarm.treasury === "low" ? ` · мало, на ${outlook.runway} дн.` : ` · на ${outlook.runway} дн.`}`
+    : "расхода нет";
+  const foodSub = alarm.food === "critical" ? `еда столицы · голод через ${foodDays} дн.` : alarm.food === "low" ? "еда столицы · мало" : "еда столицы";
+  const brief = sim ? campaignBrief(sim) : null;
+
   return (
     <div className="app">
       {!sim || !player ? (
-        <Menu
+        <MenuScreen
           seed={seed}
           worldCount={worldCount}
           houseCount={houseCount}
-          message={message}
           onSeed={setSeed}
           onWorlds={setWorldCount}
           onHouses={setHouseCount}
@@ -288,16 +497,16 @@ export function App() {
             try {
               adopt(createGame({ seed, scenario: "generated", worlds: worldCount, houses: houseCount }));
             } catch (error) {
-              setMessage(error instanceof Error ? error.message : "Не удалось создать сектор.");
+              pushToast("error", "Сектор не собрался", error instanceof Error ? error.message : "Не удалось создать сектор.");
             }
           }}
           onLoad={() => {
             try {
               const raw = localStorage.getItem(AUTOSAVE_KEY);
-              if (!raw) setMessage("Автосохранения нет.");
+              if (!raw) pushToast("warn", "Нет записи", "Автосохранения нет.");
               else loadRaw(raw);
             } catch {
-              setMessage("Браузер не отдал автосохранение.");
+              pushToast("error", "Нет записи", "Браузер не отдал автосохранение.");
             }
           }}
           onImport={(raw) => loadRaw(raw)}
@@ -306,28 +515,82 @@ export function App() {
         <>
           <header className="topbar">
             <div className="brand">Дома Пограничья</div>
-            <span className="crest" style={{ background: player.color }}>{player.crest}</span>
-            <strong>{player.name}</strong>
-            <span className="credits">{player.credits} кред.</span>
-            <span>{formatDay(sim)}</span>
-            <span className="muted">день симуляции № {sim.tick}</span>
-            <button aria-pressed={paused} onClick={togglePause}>{paused ? "Пауза" : "Идёт время"}</button>
-            <button aria-pressed={speed === 1 && !paused} onClick={() => changeSpeed(1)}>1×</button>
-            <button aria-pressed={speed === 2 && !paused} onClick={() => changeSpeed(2)}>3×</button>
-            <button aria-pressed={speed === 3 && !paused} onClick={() => changeSpeed(3)}>8×</button>
+            <div className="house-name" data-crest={player.crest}>
+              <Seal crest={player.crest} size={16} />
+              <strong>{player.name}</strong>
+            </div>
+            <button
+              ref={treasuryRef}
+              type="button"
+              className={`chip chip-${alarm.treasury}`}
+              title={treasuryWarning(sim, player.id) ?? "Казна"}
+              onClick={() => setTab("cash")}
+              onAnimationEnd={(event) => {
+                if (event.animationName === "chip-pulse") event.currentTarget.classList.remove("chip-pulse");
+              }}
+            >
+              <span className="chip-main"><Icon name="ui-credits" size={16} />{groupInt(player.credits)} кред.{alarm.treasury !== "ok" ? " ›" : ""}</span>
+              <span className="chip-sub">{treasurySub}</span>
+            </button>
+            {foodDays < 999 ? (
+              <button
+                type="button"
+                className={`chip chip-${alarm.food}`}
+                title={`${capital?.name ?? "Столица"}: еды на ${foodDays} дн.`}
+                onClick={() => {
+                  setSelected({ kind: "world", id: player.capitalId });
+                  setTab("gaps");
+                  cameraRef.current = { ...cameraRef.current, x: capital?.x ?? cameraRef.current.x, y: capital?.y ?? cameraRef.current.y };
+                }}
+              >
+                <span className="chip-main"><Icon name="ui-food-days" size={16} />{foodDays} дн.{alarm.food !== "ok" ? " ›" : ""}</span>
+                <span className="chip-sub">{foodSub}</span>
+              </button>
+            ) : null}
+            <div className="date" title={`день симуляции № ${sim.tick}`}>
+              <span>{formatDay(sim)} · окно {player.flowDays} / {sim.rules.window}</span>
+            </div>
+            <span className={`badge ${paused ? "badge-warn" : "badge-ok"}`}>{paused ? "На паузе" : "Идёт"}</span>
+            <button type="button" className="btn btn-secondary" aria-pressed={paused} onClick={togglePause}>
+              <Icon name={paused ? "ui-play" : "ui-pause"} size={18} />
+              <span>{paused ? "Запустить" : "Пауза"}</span>
+            </button>
+            <div className="speed" role="group" aria-label="Скорость">
+              {([[1, "1×"], [2, "3×"], [3, "8×"]] as const).map(([id, label]) => (
+                <button key={id} type="button" className="btn" aria-pressed={speed === id} onClick={() => changeSpeed(id)}>{label}</button>
+              ))}
+            </div>
           </header>
-          {message ? <div className="banner" role="status">{message}</div> : null}
           <div className="stage">
             <div className="map-wrap">
               <canvas
                 ref={canvasRef}
                 aria-label="Карта сектора"
                 onPointerDown={(event) => {
-                  dragRef.current = { x: event.clientX, y: event.clientY, camX: cameraRef.current.x, camY: cameraRef.current.y, moved: false };
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+                  pointersRef.current.set(event.pointerId, point);
                   event.currentTarget.setPointerCapture(event.pointerId);
+                  if (pointersRef.current.size >= 2) {
+                    const [a, b] = [...pointersRef.current.values()];
+                    pinchRef.current = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: cameraRef.current.zoom };
+                    dragRef.current = null;
+                    return;
+                  }
+                  dragRef.current = { x: event.clientX, y: event.clientY, camX: cameraRef.current.x, camY: cameraRef.current.y, moved: false };
                   event.currentTarget.classList.add("dragging");
                 }}
                 onPointerMove={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+                  if (pointersRef.current.has(event.pointerId)) pointersRef.current.set(event.pointerId, point);
+                  hoverRef.current = point;
+                  if (pointersRef.current.size >= 2 && pinchRef.current && pinchRef.current.dist > 0) {
+                    const [a, b] = [...pointersRef.current.values()];
+                    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+                    cameraRef.current.zoom = Math.max(0.28, Math.min(2.2, pinchRef.current.zoom * (dist / pinchRef.current.dist)));
+                    return;
+                  }
                   const drag = dragRef.current;
                   if (!drag) return;
                   const dx = event.clientX - drag.x;
@@ -337,866 +600,394 @@ export function App() {
                   cameraRef.current.y = drag.camY - dy / cameraRef.current.zoom;
                 }}
                 onPointerUp={(event) => {
+                  pointersRef.current.delete(event.pointerId);
+                  if (pointersRef.current.size < 2) pinchRef.current = null;
                   const drag = dragRef.current;
                   event.currentTarget.classList.remove("dragging");
-                  if (drag && !drag.moved) {
+                  if (drag && !drag.moved && pointersRef.current.size === 0) {
                     const rect = event.currentTarget.getBoundingClientRect();
-                    pickAt(event.clientX - rect.left, event.clientY - rect.top);
+                    const coarse = event.pointerType === "touch" || matchMedia("(pointer: coarse)").matches;
+                    pickAt(event.clientX - rect.left, event.clientY - rect.top, coarse ? 22 : undefined);
                   }
                   dragRef.current = null;
                 }}
+                onPointerLeave={() => {
+                  hoverRef.current = null;
+                }}
               />
-              <div className="legend">
-                Кольцо — предел владения. Пунктир — маршрут на паузе. Корабль не прыгает между мирами: он идёт по отрезку.
+              <div ref={hoverCardRef} className="hover-card"><strong /><span className="muted" /></div>
+              <div ref={coachRef} className="coach"><span>{currentLesson?.title ?? ""}</span></div>
+              <details className="legend">
+                <summary>Легенда</summary>
+                <p>Кольцо — предел владения. Печать — дом. Пунктир — маршрут. Надпись «стоит» — корабль не может идти.</p>
+              </details>
+              <div className="zoom-pad">
+                <button type="button" className="btn" aria-label="Ближе" onClick={() => zoomBy(1.1)}>+</button>
+                <button type="button" className="btn" aria-label="Дальше" onClick={() => zoomBy(0.9)}>−</button>
+                <button type="button" className="btn" aria-label="К своим мирам" onClick={() => { cameraRef.current = framed(sim, canvasRef.current?.clientWidth ?? 0, canvasRef.current?.clientHeight ?? 0); }}>⌖</button>
               </div>
             </div>
-            <aside>
-              <div className="tabs" role="tablist">
-                {TABS.map(([id, label]) => (
-                  <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>
-                ))}
-              </div>
-              <div className="panel" role="tabpanel">
-                <LessonCard
-                  sim={sim}
-                  onSkip={() => act({ type: "skipTutorial" })}
-                  onResume={() => act({ type: "resumeTutorial" })}
-                  onFocus={(worldId) => {
-                    setSelected({ kind: "world", id: worldId });
-                    setTab("world");
+            <aside className={narrow ? "sheet" : "side"} style={narrow ? { height: sheetH } : undefined}>
+              {narrow ? (
+                <div
+                  className="sheet-handle"
+                  aria-label="Потянуть панель"
+                  onPointerDown={(event) => {
+                    sheetDrag.current = { y: event.clientY, h: sheetH };
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  }}
+                  onPointerMove={(event) => {
+                    const drag = sheetDrag.current;
+                    if (!drag) return;
+                    setSheetH(clampSheet(drag.h + (drag.y - event.clientY), window.innerHeight));
+                  }}
+                  onPointerUp={(event) => {
+                    const drag = sheetDrag.current;
+                    if (!drag) return;
+                    setSheetH(snapSheet(drag.h + (drag.y - event.clientY), window.innerHeight));
+                    sheetDrag.current = null;
                   }}
                 />
-                {tab === "world" ? (
-                  <WorldPanel
+              ) : (
+                <div className="tabs" role="tablist">
+                  {MAIN_TABS.map(([id, label]) => <TabButton key={id} selected={tab === id} onClick={() => setTab(id)}>{label}</TabButton>)}
+                  {gapCount > 0 || tab === "gaps" ? <TabButton selected={tab === "gaps"} count={gapCount} onClick={() => setTab("gaps")}>Сбои</TabButton> : null}
+                  {decisionCount > 0 || tab === "politics" ? <TabButton selected={tab === "politics"} count={decisionCount} onClick={() => setTab("politics")}>Решения</TabButton> : null}
+                  <details className="more">
+                    <summary className="tab" aria-selected={Boolean(moreLabel)}>{moreLabel ?? "Ещё"} ▾</summary>
+                    <div className="more-menu">
+                      {DESKTOP_MORE.map(([id, label]) => <TabButton key={id} selected={tab === id} onClick={() => { setTab(id); }}>{label}</TabButton>)}
+                    </div>
+                  </details>
+                </div>
+              )}
+              <div className="panel" role="tabpanel">
+                <div className="panel-body">
+                  <LearnStrip
                     sim={sim}
-                    worldId={selectedWorld?.id ?? sim.worlds[0].id}
-                    onSelect={(id) => setSelected({ kind: "world", id })}
-                    onExplain={(good) => setMessage(explainPrice(sim, selectedWorld?.id ?? sim.worlds[0].id, good))}
-                    onDevelop={(path) => {
-                      const world = selectedWorld ?? sim.worlds[0];
-                      const blocked = developmentBlock(sim, player.id, world.id, path);
-                      if (blocked) {
-                        setMessage(blocked);
-                        return;
-                      }
-                      const dev = world.development;
-                      const target = dev?.path === path && dev.level === 1 ? 2 : 1;
-                      const price = levelCost(path, target as 1 | 2);
-                      const switching = Boolean(dev?.path && dev.path !== path);
-                      const worldId = world.id;
-                      setConfirm({
-                        title: `${world.name}: ${PATH_LABEL[path]} путь, уровень ${target}`,
-                        lines: [
-                          `${price.cost} кред. уйдут населению, ${price.parts} комплектующих спишутся, срок ${price.days} дн.`,
-                          switching ? `Сейчас действует другой путь. На время стройки его бонус погаснет, вложенные ${dev?.invested ?? 0} кред. не вернутся.` : "Пока стройка не закончена, бонус этого уровня не действует.",
-                          "Склад не вырастет. Смена туда-обратно и отмена не возвращают комплектующие и не выдают повторный бонус.",
-                        ],
-                        run: () => {
-                          const current = simRef.current;
-                          const live = current?.worlds.find((item) => item.id === worldId);
-                          const liveTarget = live?.development?.path === path && live.development.level === 1 ? 2 : 1;
-                          const stillBlocked = current ? developmentBlock(current, player.id, worldId, path) : "нет партии";
-                          if (!live || liveTarget !== target || stillBlocked) {
-                            setMessage(stillBlocked && liveTarget === target ? stillBlocked : `Условия изменились: подтверждён уровень ${target}, сейчас доступен уровень ${liveTarget}. Откройте приказ заново.`);
-                            setConfirm(null);
-                            return;
-                          }
-                          act({ type: "developWorld", houseId: player.id, worldId, path });
-                        },
-                      });
-                    }}
-                    onCancelDevelopment={() => {
-                      const world = selectedWorld ?? sim.worlds[0];
-                      const spent = world.development?.project?.spent ?? 0;
-                      setConfirm({
-                        title: `${world.name}: отменить перестройку`,
-                        lines: [
-                          `Вернётся ${Math.floor(spent / 2)} кред., если они ещё у населения. Вторая половина и комплектующие останутся потраченными.`,
-                          "Завершённый уровень этой отменой не снимается и заново не выдаётся.",
-                        ],
-                        run: () => act({ type: "cancelDevelopment", houseId: player.id, worldId: world.id }),
-                      });
-                    }}
-                    onExpand={(kind) => {
-                      const world = selectedWorld ?? sim.worlds[0];
-                      const cost = kind === "berth" ? BERTH_COST : SPEED_COST;
-                      const parts = kind === "berth" ? BERTH_PARTS : SPEED_PARTS;
-                      const days = kind === "berth" ? BERTH_DAYS : SPEED_DAYS;
-                      const title = kind === "berth" ? "дополнительный причал" : "ускорение обработки";
-                      setConfirm({
-                        title: `${world.name}: ${title}`,
-                        lines: [
-                          `${cost} кред. уйдут населению, ${parts} комплектующих спишутся, срок ${days} дн.`,
-                          "Складская ёмкость мира не вырастет. Пока стройка идёт, второй проект начать нельзя.",
-                        ],
-                        run: () => act({ type: "expandPort", houseId: player.id, worldId: world.id, kind }),
-                      });
-                    }}
-                    onColonize={() => {
-                      const world = selectedWorld;
-                      const ship = colonyShip(sim.ships, player.id, shipId);
-                      if (!world || !ship) return;
-                      setConfirm({
-                        title: `Основать колонию на «${world.name}»`,
-                        lines: [
-                          `Корабль ${ship.name} должен довезти ${sim.rules.colonizeFood} продовольствия и ${sim.rules.colonizeParts} комплектующих.`,
-                          `По прибытии казна отдаст населению ${sim.rules.colonizeCost} кред. Предприятий не появится, мир не станет сразу доходным.`,
-                        ],
-                        run: () => act({ type: "colonize", houseId: player.id, shipId: ship.id, worldId: world.id }),
-                      });
-                    }}
-                  />
-                ) : null}
-                {tab === "build" ? (
-                  <BuildPanel
-                    sim={sim}
-                    houseId={player.id}
-                    worldId={selectedWorld?.id ?? player.capitalId}
-                    onPreview={(kind) => {
-                      const worldId = selectedWorld?.id ?? player.capitalId;
-                      const plan = planBuild(sim, player.id, worldId, kind);
-                      if (!plan.ok) setMessage(plan.reason);
-                      else setConfirm({ title: `Построить ${RECIPES[kind].name}`, lines: plan.lines, run: () => act({ type: "build", houseId: player.id, worldId, kind }) });
-                    }}
-                    onShip={(classId) => {
-                      const worldId = selectedWorld?.id ?? player.capitalId;
-                      const plan = planShip(sim, player.id, worldId, classId);
-                      if (!plan.ok) setMessage(plan.reason);
-                      else setConfirm({ title: `Заложить ${SHIP_CLASSES[classId].name}`, lines: plan.lines, run: () => act({ type: "buildShip", houseId: player.id, worldId, classId }) });
-                    }}
-                    onToggle={(buildingId, enabled) => act({ type: "toggleBuilding", houseId: player.id, buildingId, enabled })}
-                    onWhy={(buildingId) => setMessage(explainBuilding(sim, buildingId))}
-                  />
-                ) : null}
-                {tab === "fleet" ? (
-                  <FleetPanel
-                    sim={sim}
-                    houseId={player.id}
-                    shipId={fleetCommandShipId(selectedShip, player.id, shipId)}
-                    draftName={draftName}
-                    minLoad={draftMinLoad}
-                    maxWait={draftMaxWait}
-                    stops={draftStops}
-                    stopWorld={stopWorld}
-                    action={action}
-                    onShip={(id) => {
-                      setShipId(id);
-                      setSelected({ kind: "ship", id });
-                    }}
-                    onName={setDraftName}
-                    onMinLoad={setDraftMinLoad}
-                    onMaxWait={setDraftMaxWait}
-                    onStopWorld={setStopWorld}
-                    onAction={setAction}
-                    onAddStop={() => setDraftStops((stops) => [...stops, { worldId: stopWorld, actions: [] }])}
-                    onAddAction={() => setDraftStops((stops) => {
-                      if (stops.length === 0) return stops;
-                      const copy = stops.map((stop) => ({ ...stop, actions: [...stop.actions] }));
-                      copy[copy.length - 1].actions.push({ ...action });
-                      return copy;
-                    })}
-                    onClear={() => setDraftStops([])}
-                    onCreate={() => act({ type: "createRoute", houseId: player.id, name: draftName, stops: draftStops, shipId: fleetCommandShipId(selectedShip, player.id, shipId) || undefined, minLoad: draftMinLoad, maxWait: draftMaxWait })}
-                    onPause={(routeId, next) => act({ type: "pauseRoute", routeId, paused: next })}
-                    onAssign={(id, routeId) => act({ type: "assignShip", shipId: id, routeId })}
-                    onUpdate={(routeId) => act({ type: "updateRoute", routeId, name: draftName, stops: draftStops, minLoad: draftMinLoad, maxWait: draftMaxWait })}
-                    onWhy={(id) => setMessage(explainShip(sim, id))}
-                    onLoadRoute={(routeId) => {
-                      const route = sim.routes.find((item) => item.id === routeId);
-                      if (!route) return;
-                      setDraftName(route.name);
-                      setDraftMinLoad(route.minLoad);
-                      setDraftMaxWait(route.maxWait);
-                      setDraftStops(route.stops.map((stop) => ({ worldId: stop.worldId, actions: stop.actions.map((item) => ({ ...item })) })));
-                    }}
-                  />
-                ) : null}
-                {tab === "cash" ? <CashPanel sim={sim} houseId={player.id} /> : null}
-                {tab === "gaps" ? <GapPanel sim={sim} houseId={player.id} /> : null}
-                {tab === "politics" ? (
-                  <PoliticsPanel
-                    sim={sim}
-                    houseId={player.id}
-                    onChoose={(situationId, choice) => {
-                      const situation = sim.situations.find((item) => item.id === situationId);
-                      if (!situation || situation.status !== "open") {
-                        setMessage("Решение уже закрыто. Повторно казна не списывается.");
-                        return;
-                      }
-                      setConfirm({
-                        title: `${SITUATION_LABEL[situation.kind]}: ${CHOICE_LABEL[choice]}`,
-                        lines: choicePreview(situation, choice),
-                        run: () => {
-                          const live = simRef.current?.situations.find((item) => item.id === situationId);
-                          if (!live || live.status !== "open") {
-                            setMessage("Решение уже закрыто. Повторно казна не списывается.");
-                            setConfirm(null);
-                            return;
-                          }
-                          act({ type: "resolveSituation", houseId: player.id, situationId, choice });
-                        },
-                      });
-                    }}
-                    onWorld={(worldId) => {
+                    onSkip={() => act({ type: "skipTutorial" })}
+                    onResume={() => act({ type: "resumeTutorial" })}
+                    onFocus={(worldId) => {
                       setSelected({ kind: "world", id: worldId });
                       setTab("world");
                     }}
-                    onDeals={() => setTab("deals")}
                   />
-                ) : null}
-                {tab === "deals" ? (
-                  <DealPanel
-                    sim={sim}
-                    houseId={player.id}
-                    otherId={otherHouse || sim.houses.find((house) => !house.player)?.id || ""}
-                    tariff={tariff}
-                    treatyQty={treatyQty}
-                    treatyTariff={treatyTariff}
-                    worldId={selectedWorld?.ownerId === player.id ? selectedWorld.id : player.capitalId}
-                    onOther={setOtherHouse}
-                    onTariff={setTariff}
-                    onQty={setTreatyQty}
-                    onTreatyTariff={setTreatyTariff}
-                    onSetTariff={(worldId) => act({ type: "setTariff", houseId: player.id, worldId, tariffBps: tariff })}
-                    onEmbargo={(otherId, embargo) => act({ type: "setEmbargo", houseId: player.id, otherId, embargo })}
-                    onPropose={(otherId) => {
-                      const other = houseOf(sim, otherId);
-                      const text = treatyText("exchange", player.name, other?.name ?? "дом", treatyTariff, "food", treatyQty, 96, sim.rules.window);
-                      setConfirm({
-                        title: "Предложить обмен пошлины на продовольствие",
-                        lines: [text, "До принятия ничего не списывается и не привозится."],
-                        run: () => act({
-                          type: "proposeTreaty",
-                          houseId: player.id,
-                          otherId,
-                          kind: "exchange",
-                          tariffBps: treatyTariff,
-                          good: "food",
-                          qtyPerWindow: treatyQty,
-                          duration: 96,
-                        }),
-                      });
-                    }}
-                    onRespond={(treatyId, accept) => act({ type: "respondTreaty", houseId: player.id, treatyId, accept })}
-                    onCommand={act}
-                  />
-                ) : null}
-                {tab === "house" ? <HousePanel sim={sim} houseId={player.id} onAppoint={(worldId, personId) => act({ type: "appointGovernor", houseId: player.id, worldId, personId })} /> : null}
-                {tab === "log" ? <LogPanel sim={sim} /> : null}
-                {tab === "game" ? (
-                  <GamePanel
-                    sim={sim}
-                    onSave={() => {
-                      const saved = storeSave(() => localStorage, AUTOSAVE_KEY, serialize(sim));
-                      setMessage(saved ? "Партия записана в браузер." : "Браузер не принял запись. Партия на экране сохранена.");
-                    }}
-                    onExport={() => download(serialize(sim), `border-house-${sim.seed}.json`)}
-                    onImport={(raw) => loadRaw(raw)}
-                    onBase={() => adopt(createGame({ seed: sim.seed, scenario: "base" }))}
-                    onDiag={(kind) => {
-                      if (kind === "grain") adopt(createGrainScenario(sim.seed));
-                      if (kind === "succession") adopt(createSuccessionScenario(sim.seed, true));
-                      if (kind === "fallback") adopt(createSuccessionScenario(sim.seed, false));
-                      if (kind === "colony") adopt(createExpansionScenario(sim.seed));
-                      if (kind === "crisis") adopt(createCrisisScenario(sim.seed));
-                      setMessage("Открыт проверочный сценарий. Это не продолжение кампании.");
-                    }}
-                  />
-                ) : null}
+                  {tab === "world" ? (
+                    <WorldPanel
+                      sim={sim}
+                      worldId={selectedWorld?.id ?? sim.worlds[0].id}
+                      onSelect={(id) => setSelected({ kind: "world", id })}
+                      onDevelop={(path) => openDevelop(path)}
+                      onCancelDevelopment={() => openCancelDevelopment()}
+                      onExpand={(kind) => openExpand(kind)}
+                      onColonize={() => openColonize()}
+                    />
+                  ) : null}
+                  {tab === "build" ? (
+                    <BuildPanel
+                      sim={sim}
+                      houseId={player.id}
+                      worldId={selectedWorld?.id ?? player.capitalId}
+                      onPreview={(kind) => {
+                        const worldId = selectedWorld?.id ?? player.capitalId;
+                        const plan = planBuild(sim, player.id, worldId, kind);
+                        if (!plan.ok) pushToast("warn", "Пока нельзя", plan.reason);
+                        else setConfirm({ title: `Построить ${RECIPES[kind].name}`, lines: plan.lines, run: () => act({ type: "build", houseId: player.id, worldId, kind }) });
+                      }}
+                      onShip={(classId) => {
+                        const worldId = selectedWorld?.id ?? player.capitalId;
+                        const plan = planShip(sim, player.id, worldId, classId);
+                        if (!plan.ok) pushToast("warn", "Пока нельзя", plan.reason);
+                        else setConfirm({ title: `Заложить ${SHIP_CLASSES[classId].name}`, lines: plan.lines, run: () => act({ type: "buildShip", houseId: player.id, worldId, classId }) });
+                      }}
+                      onToggle={(buildingId, enabled) => act({ type: "toggleBuilding", houseId: player.id, buildingId, enabled })}
+                    />
+                  ) : null}
+                  {tab === "fleet" ? (
+                    <FleetPanel
+                      sim={sim}
+                      houseId={player.id}
+                      shipId={commandShipId}
+                      simple={sim.routes.every((route) => route.houseId !== player.id)}
+                      draftName={draftName}
+                      minLoad={draftMinLoad}
+                      maxWait={draftMaxWait}
+                      stops={draftStops}
+                      stopWorld={stopWorld}
+                      action={action}
+                      onShip={(id) => {
+                        setShipId(id);
+                        setSelected({ kind: "ship", id });
+                      }}
+                      onName={setDraftName}
+                      onMinLoad={setDraftMinLoad}
+                      onMaxWait={setDraftMaxWait}
+                      onStopWorld={setStopWorld}
+                      onAction={setAction}
+                      onAddStop={() => setDraftStops((stops) => [...stops, { worldId: stopWorld, actions: [] }])}
+                      onAddAction={() => setDraftStops((stops) => {
+                        if (stops.length === 0) return stops;
+                        const copy = stops.map((stop) => ({ ...stop, actions: [...stop.actions] }));
+                        copy[copy.length - 1].actions.push({ ...action });
+                        return copy;
+                      })}
+                      onRemoveStop={(index) => setDraftStops((stops) => stops.filter((_, item) => item !== index))}
+                      onClear={() => setDraftStops([])}
+                      onCreate={() => act({ type: "createRoute", houseId: player.id, name: draftName, stops: draftStops, shipId: commandShipId || undefined, minLoad: draftMinLoad, maxWait: draftMaxWait, autoFuel: false })}
+                      onCreateSimple={(draft) => act({
+                        type: "createRoute",
+                        houseId: player.id,
+                        name: "Первый рейс",
+                        shipId: draft.shipId,
+                        autoFuel: false,
+                        minLoad: draft.minLoad,
+                        maxWait: draft.maxWait,
+                        stops: [
+                          { worldId: draft.fromId, actions: [{ good: draft.good, mode: "load", amount: draft.amount, price: 0, keep: 0 }] },
+                          { worldId: draft.toId, actions: [{ good: draft.good, mode: draft.mode, amount: draft.amount, price: draft.price, keep: draft.keep }] },
+                        ],
+                      })}
+                      onPause={(routeId, next) => act({ type: "pauseRoute", routeId, paused: next })}
+                      onAssign={(id, routeId) => act({ type: "assignShip", shipId: id, routeId })}
+                      onUpdate={(routeId) => act({ type: "updateRoute", routeId, name: draftName, stops: draftStops, minLoad: draftMinLoad, maxWait: draftMaxWait })}
+                      onLoadRoute={(routeId) => {
+                        const route = sim.routes.find((item) => item.id === routeId);
+                        if (!route) return;
+                        setDraftName(route.name);
+                        setDraftMinLoad(route.minLoad);
+                        setDraftMaxWait(route.maxWait);
+                        setDraftStops(route.stops.map((stop) => ({ worldId: stop.worldId, actions: stop.actions.map((item) => ({ ...item })) })));
+                      }}
+                    />
+                  ) : null}
+                  {tab === "cash" ? <CashPanel sim={sim} houseId={player.id} /> : null}
+                  {tab === "gaps" ? <GapPanel sim={sim} houseId={player.id} /> : null}
+                  {tab === "politics" ? (
+                    <PoliticsPanel
+                      sim={sim}
+                      houseId={player.id}
+                      onChoose={(situationId, choice) => openChoice(situationId, choice)}
+                      onRefuse={(situationId) => {
+                        const live = simRef.current?.situations.find((item) => item.id === situationId);
+                        if (!live || live.status !== "open") {
+                          pushToast("warn", "Уже закрыто", "Решение уже закрыто. Повторно казна не списывается.");
+                          return;
+                        }
+                        act({ type: "resolveSituation", houseId: player.id, situationId, choice: "refuse" });
+                      }}
+                      onWorld={(worldId) => {
+                        setSelected({ kind: "world", id: worldId });
+                        setTab("world");
+                      }}
+                      onDeals={() => setTab("deals")}
+                    />
+                  ) : null}
+                  {tab === "deals" ? (
+                    <DealPanel
+                      sim={sim}
+                      houseId={player.id}
+                      otherId={otherHouse || sim.houses.find((house) => !house.player)?.id || ""}
+                      tariff={tariff}
+                      treatyQty={treatyQty}
+                      treatyTariff={treatyTariff}
+                      worldId={selectedWorld?.ownerId === player.id ? selectedWorld.id : player.capitalId}
+                      onOther={setOtherHouse}
+                      onTariff={setTariff}
+                      onQty={setTreatyQty}
+                      onTreatyTariff={setTreatyTariff}
+                      onSetTariff={(worldId) => act({ type: "setTariff", houseId: player.id, worldId, tariffBps: tariff })}
+                      onEmbargo={(otherId, embargo) => act({ type: "setEmbargo", houseId: player.id, otherId, embargo })}
+                      onPropose={(otherId) => {
+                        const other = houseOf(sim, otherId);
+                        const text = treatyText("exchange", player.name, other?.name ?? "дом", treatyTariff, "food", treatyQty, 96, sim.rules.window);
+                        setConfirm({
+                          title: "Предложить обмен пошлины на продовольствие",
+                          lines: [text, "До принятия ничего не списывается и не привозится."],
+                          run: () => act({ type: "proposeTreaty", houseId: player.id, otherId, kind: "exchange", tariffBps: treatyTariff, good: "food", qtyPerWindow: treatyQty, duration: 96 }),
+                        });
+                      }}
+                      onRespond={(treatyId, accept) => act({ type: "respondTreaty", houseId: player.id, treatyId, accept })}
+                      onCommand={act}
+                    />
+                  ) : null}
+                  {tab === "house" ? <HousePanel sim={sim} houseId={player.id} onAppoint={(worldId, personId) => act({ type: "appointGovernor", houseId: player.id, worldId, personId })} /> : null}
+                  {tab === "log" ? <LogPanel sim={sim} /> : null}
+                  {tab === "game" ? (
+                    <GamePanel
+                      sim={sim}
+                      onSave={() => {
+                        const saved = storeSave(() => localStorage, AUTOSAVE_KEY, serialize(sim));
+                        pushToast(saved ? "ok" : "warn", saved ? "Записано" : "Не записалось", saved ? "Партия записана в браузер." : "Браузер не принял запись. Партия на экране сохранена.");
+                      }}
+                      onExport={() => download(serialize(sim), `border-house-${sim.seed}.json`)}
+                      onImport={(raw) => loadRaw(raw)}
+                      onBase={() => adopt(createGame({ seed: sim.seed, scenario: "base" }))}
+                      onDiag={(kind) => {
+                        if (kind === "grain") adopt(createGrainScenario(sim.seed));
+                        if (kind === "succession") adopt(createSuccessionScenario(sim.seed, true));
+                        if (kind === "fallback") adopt(createSuccessionScenario(sim.seed, false));
+                        if (kind === "colony") adopt(createExpansionScenario(sim.seed));
+                        if (kind === "crisis") adopt(createCrisisScenario(sim.seed));
+                        pushToast("info", "Проверочный сценарий", "Это не продолжение кампании.");
+                      }}
+                    />
+                  ) : null}
+                </div>
               </div>
             </aside>
+            {narrow ? (
+              <nav className="bottom-nav" aria-label="Разделы">
+                {MAIN_TABS.map(([id, label]) => <TabButton key={id} selected={tab === id} onClick={() => setTab(id)}>{label}</TabButton>)}
+                <details className="more">
+                  <summary className="tab">
+                    {moreLabel ?? "Ещё"}
+                    {gapCount > 0 ? <span className="tab-count">{gapCount}</span> : null}
+                  </summary>
+                  <div className="more-menu">
+                    {PHONE_MORE.map(([id, label]) => (
+                      <TabButton key={id} selected={tab === id} count={id === "gaps" ? gapCount : id === "politics" ? decisionCount : undefined} onClick={() => { setTab(id); }}>{label}</TabButton>
+                    ))}
+                  </div>
+                </details>
+              </nav>
+            ) : null}
           </div>
-          <footer className="ticker">
-            {hintLines(sim).map((hint) => <span key={hint}>{hint}</span>)}
-          </footer>
         </>
       )}
+      <ToastStack items={toasts} onClose={(id) => setToasts((items) => items.filter((item) => item.id !== id))} />
       {confirm ? (
-        <dialog open>
-          <h2>{confirm.title}</h2>
-          {confirm.lines.map((line) => <p key={line}>{line}</p>)}
+        <ConfirmDialog title={confirm.title} lines={confirm.lines} onConfirm={confirm.run} onCancel={() => setConfirm(null)} />
+      ) : null}
+      {goalOpen && sim ? (
+        <dialog open className="goal">
+          <h2>{brief?.title ?? "Цель партии"}</h2>
+          <p>{brief?.text ?? "Держите столицу сытой и проведите первый рейс. Обучение идёт по состоянию партии. Первое окно может закрыться в минусе."}</p>
+          {brief ? <ul className="goal-list">{brief.measures.map((measure) => <li key={measure.id}>{measure.title}</li>)}</ul> : null}
           <div className="row">
-            <button className="primary" onClick={confirm.run}>Подтвердить</button>
-            <button onClick={() => setConfirm(null)}>Отмена</button>
+            <button type="button" className="btn btn-primary" onClick={() => { localStorage.setItem(GOAL_KEY, "1"); setGoalOpen(false); }}>К карте</button>
           </div>
         </dialog>
       ) : null}
     </div>
   );
+
+  function openDevelop(path: DevelopmentPath) {
+    if (!sim || !player) return;
+    const world = selectedWorld ?? sim.worlds[0];
+    const blocked = developmentBlock(sim, player.id, world.id, path);
+    if (blocked) {
+      pushToast("warn", "Пока нельзя", blocked);
+      return;
+    }
+    const dev = world.development;
+    const target = dev?.path === path && dev.level === 1 ? 2 : 1;
+    const price = levelCost(path, target as 1 | 2);
+    const switching = Boolean(dev?.path && dev.path !== path);
+    const worldId = world.id;
+    setConfirm({
+      title: `${world.name}: ${PATH_LABEL[path]} путь, уровень ${target}`,
+      lines: [
+        `${price.cost} кред. уйдут населению, ${price.parts} комплектующих спишутся, срок ${price.days} дн.`,
+        switching ? `Сейчас действует другой путь. На время стройки его бонус погаснет, вложенные ${dev?.invested ?? 0} кред. не вернутся.` : "Пока стройка не закончена, бонус этого уровня не действует.",
+        "Склад не вырастет. Смена туда-обратно и отмена не возвращают комплектующие и не выдают повторный бонус.",
+      ],
+      run: () => {
+        const current = simRef.current;
+        const live = current?.worlds.find((item) => item.id === worldId);
+        const liveTarget = live?.development?.path === path && live.development.level === 1 ? 2 : 1;
+        const stillBlocked = current ? developmentBlock(current, player.id, worldId, path) : "нет партии";
+        if (!live || liveTarget !== target || stillBlocked) {
+          pushToast("warn", "Условия изменились", stillBlocked && liveTarget === target ? stillBlocked : `Подтверждён уровень ${target}, сейчас доступен уровень ${liveTarget}.`);
+          setConfirm(null);
+          return;
+        }
+        act({ type: "developWorld", houseId: player.id, worldId, path });
+      },
+    });
+  }
+
+  function openCancelDevelopment() {
+    if (!sim || !player) return;
+    const world = selectedWorld ?? sim.worlds[0];
+    const spent = world.development?.project?.spent ?? 0;
+    setConfirm({
+      title: `${world.name}: отменить перестройку`,
+      lines: [
+        `Вернётся ${Math.floor(spent / 2)} кред., если они ещё у населения. Вторая половина и комплектующие останутся потраченными.`,
+        "Завершённый уровень этой отменой не снимается и заново не выдаётся.",
+      ],
+      run: () => act({ type: "cancelDevelopment", houseId: player.id, worldId: world.id }),
+    });
+  }
+
+  function openExpand(kind: "berth" | "speed") {
+    if (!sim || !player) return;
+    const world = selectedWorld ?? sim.worlds[0];
+    const cost = kind === "berth" ? BERTH_COST : SPEED_COST;
+    const parts = kind === "berth" ? BERTH_PARTS : SPEED_PARTS;
+    const days = kind === "berth" ? BERTH_DAYS : SPEED_DAYS;
+    const title = kind === "berth" ? "дополнительный причал" : "ускорение обработки";
+    setConfirm({
+      title: `${world.name}: ${title}`,
+      lines: [
+        `${cost} кред. уйдут населению, ${parts} комплектующих спишутся, срок ${days} дн.`,
+        "Складская ёмкость мира не вырастет. Пока стройка идёт, второй проект начать нельзя.",
+      ],
+      run: () => act({ type: "expandPort", houseId: player.id, worldId: world.id, kind }),
+    });
+  }
+
+  function openColonize() {
+    if (!sim || !player || !selectedWorld) return;
+    const ship = colonyShip(sim.ships, player.id, shipId);
+    if (!ship) return;
+    const world = selectedWorld;
+    setConfirm({
+      title: `Основать колонию на «${world.name}»`,
+      lines: [
+        `Корабль ${ship.name} должен довезти ${sim.rules.colonizeFood} продовольствия и ${sim.rules.colonizeParts} комплектующих.`,
+        `По прибытии казна отдаст населению ${sim.rules.colonizeCost} кред. Предприятий не появится, мир не станет сразу доходным.`,
+      ],
+      run: () => act({ type: "colonize", houseId: player.id, shipId: ship.id, worldId: world.id }),
+    });
+  }
+
+  function openChoice(situationId: string, choice: SituationChoice) {
+    if (!sim || !player) return;
+    const situation = sim.situations.find((item) => item.id === situationId);
+    if (!situation || situation.status !== "open") {
+      pushToast("warn", "Уже закрыто", "Решение уже закрыто. Повторно казна не списывается.");
+      return;
+    }
+    setConfirm({
+      title: `${SITUATION_LABEL[situation.kind]}: ${CHOICE_LABEL[choice]}`,
+      lines: choicePreview(situation, choice),
+      run: () => {
+        const live = simRef.current?.situations.find((item) => item.id === situationId);
+        if (!live || live.status !== "open") {
+          pushToast("warn", "Уже закрыто", "Решение уже закрыто. Повторно казна не списывается.");
+          setConfirm(null);
+          return;
+        }
+        act({ type: "resolveSituation", houseId: player.id, situationId, choice });
+      },
+    });
+  }
 }
 
-function Menu(props: {
-  seed: number;
-  worldCount: number;
-  houseCount: number;
-  message: string;
-  onSeed: (value: number) => void;
-  onWorlds: (value: number) => void;
-  onHouses: (value: number) => void;
-  onBase: () => void;
-  onScenario: (kind: "border-contract" | "crowded-harbor" | "industry-dependence") => void;
-  onCustom: () => void;
-  onLoad: () => void;
-  onImport: (raw: string) => void;
-}) {
-  return (
-    <main className="menu">
-      <h1>Дома Пограничья</h1>
-      <p>Торговый дом в пограничном секторе. Зерно становится едой только на мельнице, руда — сплавами, а груз доезжает сам. Короткий путь к богатому рынку лежит через чужую заставу.</p>
-      {props.message ? <p className="warn" role="status">{props.message}</p> : null}
-      <div className="row">
-        <button className="primary" onClick={props.onBase}>Базовый сценарий: 16 миров и 4 дома</button>
-        <button onClick={() => props.onScenario("border-contract")}>Контракт на границе</button>
-        <button onClick={() => props.onScenario("crowded-harbor")}>Перегруженная гавань</button>
-        <button onClick={() => props.onScenario("industry-dependence")}>Промышленная зависимость</button>
-        <button onClick={props.onLoad}>Загрузить автосохранение</button>
-        <label>
-          Импорт файла
-          <input aria-label="Импорт сохранения" type="file" accept="application/json,.json" onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (!file) return;
-            file.text().then(props.onImport);
-          }} />
-        </label>
-      </div>
-      <div className="row">
-        <label>Зерно seed<input type="number" value={props.seed} onChange={(event) => props.onSeed(Number(event.target.value))} /></label>
-        <label>Миры 12–20<input type="number" min={12} max={20} value={props.worldCount} onChange={(event) => props.onWorlds(Number(event.target.value))} /></label>
-        <label>Дома 3–4<input type="number" min={3} max={4} value={props.houseCount} onChange={(event) => props.onHouses(Number(event.target.value))} /></label>
-        <button onClick={props.onCustom}>Случайный сектор</button>
-      </div>
-    </main>
-  );
+function framed(state: SimState, width: number, height: number): Camera {
+  const owner = state.houses.find((house) => house.player)?.id;
+  const own = owner ? state.worlds.filter((world) => world.ownerId === owner) : [];
+  return frameCamera(own.length > 0 ? own : state.worlds, width, height);
 }
 
-function WorldPanel(props: {
-  sim: SimState;
-  worldId: string;
-  onSelect: (id: string) => void;
-  onExplain: (good: GoodId) => void;
-  onExpand: (kind: "berth" | "speed") => void;
-  onDevelop: (path: DevelopmentPath) => void;
-  onCancelDevelopment: () => void;
-  onColonize: () => void;
-}) {
-  const world = worldOf(props.sim, props.worldId) ?? props.sim.worlds[0];
-  const need = foodPerDay(world.population, props.sim.rules.foodPer100);
-  return (
-    <>
-      <div className="row">
-        {props.sim.worlds.map((item) => (
-          <button key={item.id} aria-pressed={item.id === world.id} onClick={() => props.onSelect(item.id)}>{item.name}</button>
-        ))}
-      </div>
-      <article className="card">
-        <h2>{world.name}</h2>
-        <p>{world.specialty}. Владелец: {worldOwnerName(props.sim, world)}. Население {world.population}, кошелёк {world.popWallet} кред., удовлетворённость {world.satisfaction}.</p>
-        <p>Еда: {need} ед./день, запас на {foodCover(world.population, world.stock.food, props.sim.rules.foodPer100)} дн. Склад {Object.values(world.stock).reduce((sum, value) => sum + value, 0)} / {world.capacity} ед. Пошлина {world.tariffBps / 100}%.</p>
-        <p>Порт отдельно от склада: причалов {effectiveBerths(world.port)}, обработка до {effectiveThroughput(world.port)} ед./день. Уровни: причал {world.port.berthLevel}, скорость {world.port.speedLevel}. Содержание причала {BERTH_UPKEEP} кред./день, скорости {SPEED_UPKEEP}. {world.port.project ? `Стройка: ${world.port.project.kind === "berth" ? "причал" : "скорость"}, осталось ${world.port.project.remainingDays} дн.` : "Стройки нет."} {world.port.upkeepPaid ? "Содержание оплачено." : "Содержание не оплачено: сегодня только базовый причал."}</p>
-        <p>{portEstimate(world.port)} За окно обработано {world.port.handled} ед. Транзитный путь, если он действует, добавляет к этому бюджету ещё {transitThroughputBonus(world)} ед. и не открывает второй причал.</p>
-        <p>{developmentText(world)}</p>
-        {world.ownerId === props.sim.houses.find((house) => house.player)?.id ? (
-          <div className="row">
-            {(["agrarian", "industrial", "transit"] as const).map((path) => (
-              <button key={path} onClick={() => props.onDevelop(path)}>{PATH_LABEL[path]} путь</button>
-            ))}
-            {world.development?.project ? <button onClick={props.onCancelDevelopment}>Отменить перестройку</button> : null}
-          </div>
-        ) : null}
-        <p>У причала: {world.port.berth.map((id) => props.sim.ships.find((ship) => ship.id === id)?.name ?? id).join(", ") || "пусто"}. Очередь: {world.port.queue.map((id, index) => `${index + 1}. ${props.sim.ships.find((ship) => ship.id === id)?.name ?? id}`).join("; ") || "нет"}.</p>
-        {world.ownerId === props.sim.houses.find((house) => house.player)?.id ? (
-          <div className="row">
-            <button onClick={() => props.onExpand("berth")}>Причал, {BERTH_COST} кред. и {BERTH_PARTS} компл.</button>
-            <button onClick={() => props.onExpand("speed")}>Скорость, {SPEED_COST} кред. и {SPEED_PARTS} компл.</button>
-          </div>
-        ) : null}
-        <p>{governorBlurb(props.sim, world)}</p>
-        {!world.ownerId ? <button onClick={props.onColonize}>Готовить колонию</button> : null}
-        <table>
-          <tbody>
-            {GOODS.map((good) => (
-              <tr key={good}>
-                <th>{GOOD_NAME[good]}</th>
-                <td>{world.stock[good]} ед.</td>
-                <td>{world.prices[good]} кред./ед.</td>
-                <td><button onClick={() => props.onExplain(good)}>Почему цена</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </article>
-    </>
-  );
-}
-
-function BuildPanel(props: {
-  sim: SimState;
-  houseId: string;
-  worldId: string;
-  onPreview: (kind: keyof typeof RECIPES) => void;
-  onShip: (classId: keyof typeof SHIP_CLASSES) => void;
-  onToggle: (buildingId: string, enabled: boolean) => void;
-  onWhy: (buildingId: string) => void;
-}) {
-  const world = worldOf(props.sim, props.worldId);
-  const owned = world?.ownerId === props.houseId;
-  return (
-    <>
-      <p>{owned ? "Стройка только в своём мире. Комплектующие списываются со склада этого мира, деньги уходят местным жителям." : "Чужой мир: предприятия можно смотреть, но не переключать и не строить."}</p>
-      {owned ? (
-        <>
-          <div className="row">
-            {(Object.keys(RECIPES) as Array<keyof typeof RECIPES>).map((kind) => (
-              <button key={kind} onClick={() => props.onPreview(kind)}>{RECIPES[kind].name}: {RECIPES[kind].parts} компл., {RECIPES[kind].credits} кред., {RECIPES[kind].days} дн.</button>
-            ))}
-          </div>
-          <div className="row">
-            {(Object.keys(SHIP_CLASSES) as Array<keyof typeof SHIP_CLASSES>).map((classId) => (
-              <button key={classId} onClick={() => props.onShip(classId)}>Корабль «{SHIP_CLASSES[classId].name}»</button>
-            ))}
-          </div>
-        </>
-      ) : null}
-      {world?.buildings.map((building) => (
-        <article key={building.id} className="card">
-          <h3>{RECIPES[building.kind].name}</h3>
-          <p>{building.remainingDays > 0 ? `строится ${building.remainingDays} дн.` : building.stopReason ?? "работает"}</p>
-          <div className="row">
-            {building.ownerId === props.houseId ? (
-              <button onClick={() => props.onToggle(building.id, !building.enabled)}>{building.enabled ? "Остановить" : "Запустить"}</button>
-            ) : null}
-            <button onClick={() => props.onWhy(building.id)}>Почему так</button>
-          </div>
-        </article>
-      ))}
-    </>
-  );
-}
-
-function FleetPanel(props: {
-  sim: SimState;
-  houseId: string;
-  shipId: string;
-  draftName: string;
-  minLoad: number;
-  maxWait: number;
-  stops: RouteStop[];
-  stopWorld: string;
-  action: StopAction;
-  onShip: (id: string) => void;
-  onName: (value: string) => void;
-  onMinLoad: (value: number) => void;
-  onMaxWait: (value: number) => void;
-  onStopWorld: (id: string) => void;
-  onAction: (action: StopAction) => void;
-  onAddStop: () => void;
-  onAddAction: () => void;
-  onClear: () => void;
-  onCreate: () => void;
-  onPause: (routeId: string, paused: boolean) => void;
-  onAssign: (shipId: string, routeId: string | null) => void;
-  onUpdate: (routeId: string) => void;
-  onWhy: (shipId: string) => void;
-  onLoadRoute: (routeId: string) => void;
-}) {
-  const ships = props.sim.ships.filter((ship) => ship.houseId === props.houseId);
-  const routes = props.sim.routes.filter((route) => route.houseId === props.houseId);
-  return (
-    <>
-      {ships.map((ship) => (
-        <article key={ship.id} className="card">
-          <h3>{ship.name}</h3>
-          <p>{shipStatusLabel(ship.status)}. {ship.stopReason ?? "рейс свободен"}.</p>
-          <p>Груз: {GOODS.map((good) => `${GOOD_NAME[good]} ${ship.cargo[good]}`).join(", ")}.</p>
-          <div className="row">
-            <button onClick={() => props.onShip(ship.id)}>Выбрать</button>
-            <button onClick={() => props.onWhy(ship.id)}>Почему рейс такой</button>
-          </div>
-        </article>
-      ))}
-      <article className="card stack">
-        <h3>Редактор маршрута</h3>
-        <p>Пока корабль в пути, новое расписание начнётся после текущего перегона. Груз при этом не переносится сам.</p>
-        <label>Название<input value={props.draftName} onChange={(event) => props.onName(event.target.value)} /></label>
-        <label>Минимум груза без топлива<input type="number" value={props.minLoad} onChange={(event) => props.onMinLoad(Number(event.target.value))} /></label>
-        <label>Ждать, дней<input type="number" value={props.maxWait} onChange={(event) => props.onMaxWait(Number(event.target.value))} /></label>
-        <p>0 и 0 — рейс как раньше: корабль уходит с тем, что успел взять. Иначе ждёт до минимума и после срока уходит частично.</p>
-        <label>Мир остановки
-          <select value={props.stopWorld} onChange={(event) => props.onStopWorld(event.target.value)}>
-            {props.sim.worlds.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}
-          </select>
-        </label>
-        <button onClick={props.onAddStop}>Добавить остановку</button>
-        <div className="row">
-          <select value={props.action.good} onChange={(event) => props.onAction({ ...props.action, good: event.target.value as GoodId })}>
-            {GOODS.map((good) => <option key={good} value={good}>{GOOD_NAME[good]}</option>)}
-          </select>
-          <select value={props.action.mode} onChange={(event) => props.onAction({ ...props.action, mode: event.target.value as StopAction["mode"] })}>
-            <option value="load">погрузить своё</option>
-            <option value="unload">выгрузить своё</option>
-            <option value="buy">купить</option>
-            <option value="sell">продать</option>
-          </select>
-          <label>Количество<input type="number" value={props.action.amount} onChange={(event) => props.onAction({ ...props.action, amount: Number(event.target.value) })} /></label>
-          <label>Предел цены<input type="number" value={props.action.price} onChange={(event) => props.onAction({ ...props.action, price: Number(event.target.value) })} /></label>
-          <label>Резерв<input type="number" value={props.action.keep} onChange={(event) => props.onAction({ ...props.action, keep: Number(event.target.value) })} /></label>
-        </div>
-        <button onClick={props.onAddAction}>Добавить правило на последнюю остановку</button>
-        <ol>
-          {props.stops.map((stop, index) => (
-            <li key={`${stop.worldId}-${index}`}>{worldOf(props.sim, stop.worldId)?.name}: {stop.actions.map((item) => `${{ load: "погрузка", unload: "выгрузка", buy: "покупка", sell: "продажа" }[item.mode]} ${item.amount} ${GOOD_NAME[item.good]}`).join("; ") || "без правил"}</li>
-          ))}
-        </ol>
-        <div className="row">
-          <button className="primary" onClick={props.onCreate}>Проложить маршрут</button>
-          <button onClick={props.onClear}>Очистить черновик</button>
-        </div>
-      </article>
-      {routes.map((route) => (
-        <article key={route.id} className="card">
-          <h3>{route.name}</h3>
-          <p>{route.paused ? "на паузе" : "идёт"}. Это окно: выручка {route.revenue}, расход {route.cost}, топливо {route.fuelUsed}, груз {route.movedWindow} ед. Дней в пути {route.daysFlying}, у причала {route.daysPort}, в очереди {route.daysWaiting}. Прошлое окно: {route.lastRevenue} / {route.lastCost}, груз {route.lastMoved}.</p>
-          <p>Минимум загрузки {route.minLoad}, ждать до {route.maxWait} дн., уже ждёт {Math.max(0, ...props.sim.ships.filter((ship) => ship.routeId === route.id).map((ship) => ship.loadWait), 0)}. Узкое место смотрите по тексту стоянки корабля: очередь, лимит порта или склад.</p>
-          <div className="row">
-            <button onClick={() => props.onLoadRoute(route.id)}>В черновик</button>
-            <button onClick={() => props.onUpdate(route.id)}>Записать черновик в этот маршрут</button>
-            <button onClick={() => props.onPause(route.id, !route.paused)}>{route.paused ? "Снять паузу" : "Пауза маршрута"}</button>
-            <button onClick={() => props.shipId && props.onAssign(props.shipId, route.id)} disabled={!props.shipId}>Назначить выбранный корабль</button>
-          </div>
-        </article>
-      ))}
-    </>
-  );
-}
-
-function CashPanel(props: { sim: SimState; houseId: string }) {
-  const house = houseOf(props.sim, props.houseId)!;
-  return (
-    <article className="card">
-      <h2>Касса {house.name}</h2>
-      <p>Баланс {house.credits} кред., из них свободно {house.credits - house.reserved}, в резерве контрактов {house.reserved}. Окно учёта {house.flowDays} / {props.sim.rules.window} дн. Резерв остаётся в казне, но его нельзя потратить второй раз. Начальные деньги — явное наделение, содержание кораблей и предприятий сжигается и пишется как сток. Окно сбрасывается каждые {props.sim.rules.window} дн., поэтому одна строка окна не равна падению казны с начала партии.</p>
-      {treasuryWarning(props.sim, house.id) ? <p>{treasuryWarning(props.sim, house.id)}</p> : null}
-      <table>
-        <tbody>
-          {FLOW_LABELS.map(([key, label]) => (
-            <tr key={key}><th>{label}</th><td>сейчас {house.flow[key]}</td><td>прошлое окно {house.lastFlow[key]}</td></tr>
-          ))}
-        </tbody>
-      </table>
-      {props.sim.routes.filter((route) => route.houseId === house.id).map((route) => (
-        <p key={route.id}>«{route.name}»: выручка {route.revenue + route.lastRevenue} кред. против расхода {route.cost + route.lastCost} кред. и {route.fuelUsed + route.lastFuelUsed} ед. топлива за текущее и прошлое окна.</p>
-      ))}
-    </article>
-  );
-}
-
-function GapPanel(props: { sim: SimState; houseId: string }) {
-  const items = bottlenecks(props.sim, props.houseId);
-  return (
-    <>
-      {items.length === 0 ? <p>Явных остановок нет. Это не значит, что запас бесконечный: смотрите дни еды на мирах.</p> : null}
-      {items.map((item) => (
-        <article key={`${item.title}-${item.detail}`} className="card">
-          <h3>{item.title}</h3>
-          <p>{item.detail}</p>
-        </article>
-      ))}
-    </>
-  );
-}
-
-function DealPanel(props: {
-  sim: SimState;
-  houseId: string;
-  otherId: string;
-  tariff: number;
-  treatyQty: number;
-  treatyTariff: number;
-  worldId: string;
-  onOther: (id: string) => void;
-  onTariff: (value: number) => void;
-  onQty: (value: number) => void;
-  onTreatyTariff: (value: number) => void;
-  onSetTariff: (worldId: string) => void;
-  onEmbargo: (otherId: string, embargo: boolean) => void;
-  onPropose: (otherId: string) => void;
-  onRespond: (treatyId: string, accept: boolean) => void;
-  onCommand: (command: Command) => void;
-}) {
-  const [good, setGood] = useState<GoodId>("food");
-  const [qty, setQty] = useState(8);
-  const [windows, setWindows] = useState(2);
-  const [price, setPrice] = useState(10);
-  const [shortfall, setShortfall] = useState(1);
-  const [deposit, setDeposit] = useState(20);
-  const [destination, setDestination] = useState("");
-  const house = houseOf(props.sim, props.houseId)!;
-  const buyerWorlds = props.sim.worlds.filter((world) => world.ownerId === props.otherId);
-  const buyerWorldId = buyerWorlds.some((world) => world.id === destination) ? destination : buyerWorlds[0]?.id ?? "";
-  const preview = buyerWorldId ? contractEstimate(props.sim, house.id, props.otherId, good, buyerWorldId, qty, windows, price, deposit) : null;
-  return (
-    <>
-      {dependencyRows(props.sim, house).map((line) => <p key={line}>{line}</p>)}
-      <label>Другой дом
-        <select value={props.otherId} onChange={(event) => props.onOther(event.target.value)}>
-          {props.sim.houses.filter((item) => item.id !== house.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-      </label>
-      <div className="row">
-        <button onClick={() => props.onEmbargo(props.otherId, true)}>Эмбарго</button>
-        <button onClick={() => props.onEmbargo(props.otherId, false)}>Открыть доступ</button>
-      </div>
-      <label>Пошлина выбранного своего мира, базисные пункты
-        <input type="number" value={props.tariff} onChange={(event) => props.onTariff(Number(event.target.value))} />
-      </label>
-      <button onClick={() => props.onSetTariff(props.worldId)}>Поставить пошлину</button>
-      <label>Продовольствие за окно учёта
-        <input type="number" value={props.treatyQty} onChange={(event) => props.onQty(Number(event.target.value))} />
-      </label>
-      <label>Просимая пошлина, б.п.
-        <input type="number" value={props.treatyTariff} onChange={(event) => props.onTreatyTariff(Number(event.target.value))} />
-      </label>
-      <button className="primary" onClick={() => props.onPropose(props.otherId)}>Предложить скидку за поставки</button>
-      <h3>Коммерческий контракт</h3>
-      <p>Цена фиксируется при принятии. Рыночная цена потом может измениться, контрактная нет. Дипломатический договор этой пары остаётся отдельным.</p>
-      <label>Товар
-        <select value={good} onChange={(event) => setGood(event.target.value as GoodId)}>
-          {GOODS.map((item) => <option key={item} value={item}>{GOOD_NAME[item]}</option>)}
-        </select>
-      </label>
-      <label>Мир покупателя
-        <select value={buyerWorldId} onChange={(event) => setDestination(event.target.value)}>
-          {buyerWorlds.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}
-        </select>
-      </label>
-      <label>Объём за окно <input type="number" value={qty} onChange={(event) => setQty(Number(event.target.value))} /></label>
-      <label>Окон, 2–6 <input type="number" value={windows} onChange={(event) => setWindows(Number(event.target.value))} /></label>
-      <label>Цена за единицу <input type="number" value={price} onChange={(event) => setPrice(Number(event.target.value))} /></label>
-      <label>Допустимый недовоз <input type="number" value={shortfall} onChange={(event) => setShortfall(Number(event.target.value))} /></label>
-      <label>Залог продавца <input type="number" value={deposit} onChange={(event) => setDeposit(Number(event.target.value))} /></label>
-      {preview ? (
-        <article className="card">
-          <p>Оценка выручки {preview.revenue} кред. Путь около {preview.voyageDays} дн., рейсов на окно {preview.trips}, трюм {preview.capacity}. Топливо по текущей цене около {preview.fuelCost} кред. Залог {preview.collateral}.</p>
-          {preview.assumptions.map((line) => <p key={line}>{line}</p>)}
-        </article>
-      ) : null}
-      <button className="primary" onClick={() => props.onCommand({
-        type: "proposeContract",
-        sellerId: house.id,
-        buyerId: props.otherId,
-        good,
-        worldId: buyerWorldId,
-        qtyPerWindow: qty,
-        windows,
-        price,
-        shortfall,
-        deposit,
-      })}>Предложить контракт</button>
-      {props.sim.treaties.map((treaty) => (
-        <article key={treaty.id} className="card">
-          <h3>{treatyStatusLabel(treaty.status)}</h3>
-          <p>{treaty.note}</p>
-          <p>Поставлено в этом окне {treaty.delivered} / {treaty.qtyPerWindow}. До дня {treaty.endTick}.</p>
-          {treaty.status === "proposed" && treaty.targetId === house.id ? (
-            <div className="row">
-              <button onClick={() => props.onRespond(treaty.id, true)}>Принять</button>
-              <button onClick={() => props.onRespond(treaty.id, false)}>Отказать</button>
-            </div>
-          ) : null}
-        </article>
-      ))}
-      {props.sim.contracts.map((contract) => {
-        const seller = props.sim.houses.find((item) => item.id === contract.sellerId);
-        const buyer = props.sim.houses.find((item) => item.id === contract.buyerId);
-        const destination = props.sim.worlds.find((item) => item.id === contract.worldId);
-        return (
-        <article key={contract.id} className="card">
-          <h3>Контракт {contractStatusLabel(contract.status)}</h3>
-          <p>{seller?.name ?? "продавец"} поставляет {buyer?.name ?? "покупателю"} {GOOD_NAME[contract.good]} в «{destination?.name ?? "мир"}». Цена {contract.price}, объём {contract.qtyPerWindow} за окно, допустимый недовоз {contract.shortfall}, срок {contract.windows} окон.</p>
-          <p>{contract.note}</p>
-          <p>Окно {contract.windowIndex + 1} / {contract.windows}, день {contract.windowDays} / {props.sim.rules.window}. Принято {contract.delivered} / {contract.qtyPerWindow} по {contract.price} кред. Резерв покупателя {contract.buyerReserve}, залог {contract.deposit}.</p>
-          <p>{contractRisks(props.sim, contract).join(" ")}</p>
-          {contract.history.length > 0 ? <p>Прошлые окна: {contract.history.map((item) => `${item.delivered} ед., оплата ${item.paid}, штраф ${item.penalty}`).join("; ")}.</p> : null}
-          {contract.trades.length > 0 ? <p>Приёмки: {contract.trades.map((item) => `день ${item.tick} ${item.qty} по ${item.price}`).join("; ")}.</p> : null}
-          {contract.status === "proposed" && contract.buyerId === house.id ? (
-            <div className="row">
-              <button onClick={() => props.onCommand({ type: "respondContract", houseId: house.id, contractId: contract.id, accept: true })}>Принять контракт</button>
-              <button onClick={() => props.onCommand({ type: "respondContract", houseId: house.id, contractId: contract.id, accept: false })}>Отклонить</button>
-            </div>
-          ) : null}
-          {contract.status === "proposed" || contract.status === "active" ? (
-            <button onClick={() => props.onCommand({ type: "cancelContract", houseId: house.id, contractId: contract.id })}>Отменить контракт</button>
-          ) : null}
-        </article>
-        );
-      })}
-    </>
-  );
-}
-
-function HousePanel(props: { sim: SimState; houseId: string; onAppoint: (worldId: string, personId: string) => void }) {
-  const people = props.sim.people.filter((person) => person.houseId === props.houseId);
-  const head = people.find((person) => person.alive && person.role === "head");
-  const heir = people.find((person) => person.alive && person.role === "heir");
-  return (
-    <>
-      <p>{head ? officeLine("Глава", head.name, "Глава: нет") : "Глава: нет"}, {head ? Math.floor(head.ageDays / props.sim.rules.ticksPerYear) : "—"} лет, черты {head?.traits.join(", ")}. {heir ? officeLine("Наследник", heir.name, "Наследник: не назначен") : "Наследник: не назначен"}. Смерть главы не обнуляет казну. Если наследника нет, дом берёт губернатор с наибольшей лояльностью, иначе старшая родня, иначе регент.</p>
-      {people.map((person) => (
-        <article key={person.id} className="card">
-          <h3>{person.name}</h3>
-          <p>{person.alive ? personRoleLabel(person.role) : "умер"}, {Math.floor(person.ageDays / props.sim.rules.ticksPerYear)} лет, лояльность {person.loyalty}, черты {person.traits.join(", ") || "нет"}.</p>
-        </article>
-      ))}
-      <Appoint governorId={people.find((person) => person.alive && person.role !== "head")?.id ?? ""} worlds={props.sim.worlds.filter((world) => world.ownerId === props.houseId)} people={people.filter((person) => person.alive && person.role !== "head")} onAppoint={props.onAppoint} />
-    </>
-  );
-}
-
-function Appoint(props: {
-  governorId: string;
-  worlds: SimState["worlds"];
-  people: SimState["people"];
-  onAppoint: (worldId: string, personId: string) => void;
-}) {
-  const [worldId, setWorldId] = useState(props.worlds[0]?.id ?? "");
-  const [personId, setPersonId] = useState(props.governorId);
-  const selectedWorld = props.worlds.some((world) => world.id === worldId) ? worldId : (props.worlds[0]?.id ?? "");
-  const selectedPerson = props.people.some((person) => person.id === personId) ? personId : (props.people[0]?.id ?? "");
-  return (
-    <div className="card stack">
-      <h3>Назначить губернатора</h3>
-      <select value={selectedWorld} onChange={(event) => setWorldId(event.target.value)}>
-        {props.worlds.map((world) => <option key={world.id} value={world.id}>{world.name}</option>)}
-      </select>
-      <select aria-label="Кандидат в губернаторы" value={selectedPerson} onChange={(event) => setPersonId(event.target.value)}>
-        {props.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-      </select>
-      <button onClick={() => props.onAppoint(selectedWorld, selectedPerson)} disabled={!selectedPerson}>Назначить</button>
-    </div>
-  );
-}
-
-function LogPanel(props: { sim: SimState }) {
-  return (
-    <>
-      <h2>Журнал</h2>
-      {[...props.sim.journal].reverse().map((entry, index) => <p key={`${entry.tick}-${index}`}>День {entry.tick}. {entry.text}</p>)}
-      <h2>Почему так решили соседи</h2>
-      {[...props.sim.aiLog].reverse().map((entry, index) => <p key={`${entry.tick}-ai-${index}`}>День {entry.tick}. {entry.text}</p>)}
-    </>
-  );
-}
-
-function PoliticsPanel(props: {
-  sim: SimState;
-  houseId: string;
-  onChoose: (situationId: string, choice: SituationChoice) => void;
-  onWorld: (worldId: string) => void;
-  onDeals: () => void;
-}) {
-  const house = props.sim.houses.find((item) => item.id === props.houseId);
-  const goal = house ? describeGoal(props.sim, house) : null;
-  const open = props.sim.situations.filter((item) => item.houseId === props.houseId && item.status === "open");
-  return (
-    <>
-      <article className="card">
-        <h3>Цель дома</h3>
-        <p>{goal ? `${goal.title}. ${goal.reason}` : "Дом не выбран."}</p>
-      </article>
-      {open.length === 0 ? <p>Открытых решений нет. Ситуация появляется только при живом дефиците, очереди, срыве контракта или уже случившейся смене главы.</p> : null}
-      {open.map((situation) => (
-        <article key={situation.id} className="card">
-          <h3>{SITUATION_LABEL[situation.kind]}</h3>
-          <p>{situation.cause}</p>
-          <p>До тика {situation.deadlineTick} осталось {Math.max(0, situation.deadlineTick - props.sim.tick)} дн. Пауза срок не тратит. Повторное нажатие после выбора казну не списывает.</p>
-          <div className="row">
-            {(["yield", "pay", "refuse"] as const).map((choice) => (
-              <button key={choice} onClick={() => props.onChoose(situation.id, choice)}>{CHOICE_LABEL[choice]}</button>
-            ))}
-            {situation.worldId ? <button onClick={() => props.onWorld(situation.worldId!)}>К миру</button> : null}
-            {situation.treatyId || situation.contractId ? <button onClick={props.onDeals}>К договору</button> : null}
-          </div>
-        </article>
-      ))}
-    </>
-  );
-}
-
-function LessonCard(props: {
-  sim: SimState;
-  onSkip: () => void;
-  onResume: () => void;
-  onFocus: (worldId: string) => void;
-}) {
-  const brief = campaignBrief(props.sim);
-  const lessons = lessonViews(props.sim);
-  const current = lessons.find((lesson) => !lesson.done) ?? null;
-  const done = lessons.filter((lesson) => lesson.done).length;
-  return (
-    <article className="card">
-      {brief ? (
-        <>
-          <h2>{brief.title}</h2>
-          <p>{brief.text}</p>
-          {brief.measures.map((measure) => (
-            <p key={measure.id}>{measure.done ? "Готово" : "Ещё нет"}. {measure.title}: {measure.value}. {measure.formula}</p>
-          ))}
-        </>
-      ) : null}
-      {props.sim.tutorial.skipped ? (
-        <button onClick={props.onResume}>Вернуться к обучению</button>
-      ) : (
-        <>
-          <h2>Обучение, {done} из {lessons.length}</h2>
-          {current ? (
-            <>
-              <p>{current.title}. {current.detail}</p>
-              <p>{current.check}</p>
-              {current.focusWorldId ? <button onClick={() => props.onFocus(current.focusWorldId!)}>Показать мир</button> : null}
-            </>
-          ) : <p>Все учебные цели закрыты состоянием партии. Наград нет.</p>}
-          <button onClick={props.onSkip}>Пропустить обучение</button>
-        </>
-      )}
-    </article>
-  );
-}
-
-function GamePanel(props: {
-  sim: SimState;
-  onSave: () => void;
-  onExport: () => void;
-  onImport: (raw: string) => void;
-  onBase: () => void;
-  onDiag: (kind: "grain" | "succession" | "fallback" | "colony" | "crisis") => void;
-}) {
-  return (
-    <>
-      <p>Seed {props.sim.seed}. Сохранение версии 6 хранит ход, рейсы, контракты, портовые очереди, путь развития, политические решения и флаг обучения. Записи версий 1–5 открываются: у старых партий обучение включено, список решений пуст, если его не было. Чужой номер версии или битый файл не затирают текущую партию.</p>
-      <div className="row">
-        <button onClick={props.onSave}>Сохранить в браузер</button>
-        <button onClick={props.onExport}>Экспорт файла</button>
-        <label>Импорт
-          <input aria-label="Импорт сохранения в партии" type="file" accept="application/json,.json" onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (!file) return;
-            file.text().then(props.onImport);
-          }} />
-        </label>
-        <button onClick={props.onBase}>Новая базовая партия</button>
-      </div>
-      <fieldset className="card">
-        <legend>Проверочные сценарии, не кампания</legend>
-        <div className="row">
-          <button onClick={() => props.onDiag("grain")}>Дефицит зерна</button>
-          <button onClick={() => props.onDiag("succession")}>Быстрая смена главы</button>
-          <button onClick={() => props.onDiag("fallback")}>Нет наследника</button>
-          <button onClick={() => props.onDiag("colony")}>Экспансия ИИ</button>
-          <button onClick={() => props.onDiag("crisis")}>Спор о пошлине</button>
-        </div>
-      </fieldset>
-    </>
-  );
+function takeSnap(state: SimState): Snap {
+  const player = state.houses.find((house) => house.player);
+  return {
+    credits: player?.credits ?? 0,
+    flowDays: player?.flowDays ?? 0,
+    ships: state.ships.map((ship) => ({ id: ship.id, status: ship.status })),
+  };
 }
 
 function download(contents: string, name: string) {

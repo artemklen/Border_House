@@ -32,9 +32,7 @@ describe("казна базовой партии", () => {
     expect(warning).toContain("«Касса»");
     expect(warning).toContain("не гарантия");
     const ticker = hintLines(state)[0];
-    expect(ticker).toContain("зарплаты 465");
-    expect(ticker).toContain("примерно на 35 дн");
-    expect(ticker).toContain("«Касса»");
+    expect(ticker).toBe("на 35 дн.");
     expect(ticker.length).toBeLessThan(warning.length);
     const marks: Record<number, number> = {};
     let fail: number | null = null;
